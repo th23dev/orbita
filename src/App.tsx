@@ -21,6 +21,7 @@ import { Chat } from './components/Chat'
 import { Friends } from './components/Friends'
 import { Settings } from './components/Settings'
 import { ServerAdmin } from './components/ServerAdmin'
+import { ServerLogo } from './components/ServerLogo'
 import { Avatar, Empty, IconButton, Logo, Modal } from './components/ui'
 import { check, db, errorText, supabase } from './lib/supabase'
 import { useWorkspace } from './hooks/useWorkspace'
@@ -35,7 +36,13 @@ function Workspace({ session }: { session: Session }) {
     [serverId, setServerId] = useState(''),
     [selection, setSelection] = useState<{ kind: 'channel' | 'dm'; id: string } | null>(null)
   const [mobile, setMobile] = useState(false),
-    [showMembers, setShowMembers] = useState(true),
+    [showMembers, setShowMembers] = useState(() => {
+      try {
+        return localStorage.getItem('orbita:members-sidebar') !== 'hidden'
+      } catch {
+        return true
+      }
+    }),
     [voice, setVoice] = useState<Channel | null>(null),
     [name, setName] = useState(''),
     [kind, setKind] = useState('text'),
@@ -66,6 +73,13 @@ function Workspace({ session }: { session: Session }) {
     .sort((a, b) => Number(online.includes(b.id)) - Number(online.includes(a.id)))
   const owner = currentServer?.owner_id === session.user.id
   const leave = useCallback(() => setVoice(null), [])
+  useEffect(() => {
+    try {
+      localStorage.setItem('orbita:members-sidebar', showMembers ? 'visible' : 'hidden')
+    } catch {
+      /* Browser storage may be disabled. */
+    }
+  }, [showMembers])
   useEffect(() => {
     if (voice && !data.loading && !data.channels.some((c) => c.id === voice.id)) setVoice(null)
   }, [data.channels, data.loading, voice])
@@ -158,7 +172,7 @@ function Workspace({ session }: { session: Session }) {
             title={s.name}
             onClick={() => chooseServer(s.id)}
           >
-            {s.name.slice(0, 2).toUpperCase()}
+            <ServerLogo server={s} />
           </button>
         ))}
         <button className="rail-add" title="Criar servidor" onClick={() => openModal('server')}>
@@ -207,18 +221,6 @@ function Workspace({ session }: { session: Session }) {
           </button>
           {currentServer ? (
             <>
-              <div className="server-card">
-                <span className="eyebrow">SUA COMUNIDADE</span>
-                <strong>
-                  Um espaço para
-                  <br />
-                  chamar de nosso.
-                </strong>
-                <span>
-                  <span className="tiny-dot" />
-                  {people.length} membro{people.length === 1 ? '' : 's'}
-                </span>
-              </div>
               {(['text', 'voice'] as const).map((type) => (
                 <div className="channel-group" key={type}>
                   <div className="section-label">
@@ -365,8 +367,15 @@ function Workspace({ session }: { session: Session }) {
               </IconButton>
             )}
             {currentServer && (
-              <IconButton label="Mostrar membros" onClick={() => setShowMembers(!showMembers)}>
+              <IconButton
+                className={`members-toggle ${showMembers ? 'active' : ''}`}
+                label={showMembers ? 'Ocultar membros' : 'Mostrar membros'}
+                aria-expanded={showMembers}
+                aria-controls="members-sidebar"
+                onClick={() => setShowMembers(!showMembers)}
+              >
                 <Users size={20} />
+                <span>Membros</span>
               </IconButton>
             )}
           </div>
@@ -441,9 +450,18 @@ function Workspace({ session }: { session: Session }) {
               </div>
             )}
           </div>
-          {currentServer && (
-            <aside className="members-sidebar">
-              <div className="section-label">NA COMUNIDADE — {people.length}</div>
+          {currentServer && showMembers && (
+            <aside
+              className="members-sidebar"
+              id="members-sidebar"
+              aria-label="Membros da comunidade"
+            >
+              <div className="section-label">
+                <span>NA COMUNIDADE — {people.length}</span>
+                <IconButton label="Fechar lista de membros" onClick={() => setShowMembers(false)}>
+                  <X size={15} />
+                </IconButton>
+              </div>
               {people.map((p) => (
                 <div className={`member ${online.includes(p.id) ? '' : 'is-offline'}`} key={p.id}>
                   <Avatar profile={p} online={online.includes(p.id)} small />

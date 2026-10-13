@@ -138,6 +138,70 @@ await test('Only owner manages private channels', async () => {
     0,
   )
 })
+await test('Owner can grant and revoke individual channel access; members cannot self-grant', async () => {
+  const sql =
+    'insert into channel_member_permissions(server_id,channel_id,user_id) values($1,$2,$3)'
+  await denied(ids[1], sql, [server.id, privateChannel.id, ids[1]])
+  await denied(ids[0], sql, [server.id, privateChannel.id, ids[2]])
+  await as(ids[0], sql, [server.id, privateChannel.id, ids[1]])
+  assert.equal(
+    (await as(ids[1], 'select * from channels where id=$1', [privateChannel.id])).length,
+    1,
+  )
+  await as(ids[1], "insert into messages(author_id,channel_id,content) values($1,$2,'allowed')", [
+    ids[1],
+    privateChannel.id,
+  ])
+  assert.equal((await as(ids[1], 'delete from channel_member_permissions returning *')).length, 0)
+  await as(ids[0], 'delete from channel_member_permissions where channel_id=$1', [
+    privateChannel.id,
+  ])
+  assert.equal(
+    (await as(ids[1], 'select * from channels where id=$1', [privateChannel.id])).length,
+    0,
+  )
+  await denied(
+    ids[1],
+    "insert into messages(author_id,channel_id,content) values($1,$2,'denied')",
+    [ids[1], privateChannel.id],
+  )
+  const other = (
+    await as(ids[0], "insert into servers(owner_id,name) values($1,'Other') returning id", [ids[0]])
+  )[0]
+  await denied(ids[0], sql, [other.id, privateChannel.id, ids[0]])
+})
+await test('Server logos are owner-managed and readable only by members', async () => {
+  const path = `${server.id}/${crypto.randomUUID()}`
+  await denied(ids[1], "insert into storage.objects(bucket_id,name) values('server-icons',$1)", [
+    path,
+  ])
+  await as(ids[0], "insert into storage.objects(bucket_id,name) values('server-icons',$1)", [path])
+  await as(ids[0], 'update servers set icon_path=$1 where id=$2', [path, server.id])
+  assert.equal(
+    (await as(ids[1], "select * from storage.objects where bucket_id='server-icons'")).length,
+    1,
+  )
+  assert.equal(
+    (await as(ids[2], "select * from storage.objects where bucket_id='server-icons'")).length,
+    0,
+  )
+  assert.equal(
+    (await as(ids[1], 'update servers set icon_path=null where id=$1 returning *', [server.id]))
+      .length,
+    0,
+  )
+  await denied(ids[0], 'update servers set icon_path=$1 where id=$2', [
+    `${ids[2]}/foreign`,
+    server.id,
+  ])
+  assert.equal(
+    (await as(ids[1], "delete from storage.objects where bucket_id='server-icons' returning *"))
+      .length,
+    0,
+  )
+  await as(ids[0], 'update servers set icon_path=null where id=$1', [server.id])
+  await as(ids[0], "delete from storage.objects where bucket_id='server-icons'")
+})
 await test('Roles grant private access only to assigned members', async () => {
   role = (
     await as(ids[0], "insert into roles(server_id,name) values($1,'Design') returning *", [
@@ -315,7 +379,7 @@ await test('Every public table has RLS and anon has no data grants', async () =>
       "select relname,relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'",
     )
   ).rows
-  assert.equal(tables.length, 16)
+  assert.equal(tables.length, 17)
   assert.ok(tables.every((t) => t.relrowsecurity))
   await db.exec('begin;set local role anon;')
   try {

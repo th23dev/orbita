@@ -90,7 +90,9 @@ Validação: cadastre duas contas com e-mails distintos, confirme os e-mails e t
 
 O botão `+` na barra de servidores cria um servidor, com canal `geral` e sala de voz iniciais. O proprietário gerencia canais, convites, cargos e permissões no menu do servidor. Um convite expira em 7 dias e permite até 25 entradas. Copie o código para outro usuário e use **Entrar com convite**.
 
-Canais privados exigem um cargo autorizado; o proprietário conserva acesso. Cargos concedem acesso a canais, não administração do servidor. A administração cabe ao proprietário. Arquivar remove o canal da navegação; o histórico continua no banco. Restaurar exige uma alteração administrativa de `archived` para `false`.
+Canais privados exigem um cargo autorizado ou acesso individual em **Gerenciar servidor → Canais e acesso → Permissões por usuário**; o proprietário conserva acesso. Para retirar um acesso herdado, remova o cargo ou a permissão desse cargo. Essas permissões permitem ver o canal e participar da conversa; a administração cabe ao proprietário. Arquivar remove o canal da navegação; o histórico continua no banco. Restaurar exige uma alteração administrativa de `archived` para `false`.
+
+Em **Gerenciar servidor → Identidade do servidor**, o proprietário pode editar nome/descrição e enviar, substituir ou remover um logo JPG, PNG ou WebP de até 2 MB. O logo aparece na barra de servidores e é armazenado em um bucket privado acessível aos membros. O botão **Membros** no cabeçalho esconde ou mostra a lista lateral e lembra a preferência neste navegador.
 
 Validação: [cenários de acesso](docs/TESTES.md), incluindo um terceiro usuário sem convite.
 
@@ -137,7 +139,9 @@ npx deno check --config supabase/functions/deno.json supabase/functions/livekit-
 
 ### 9. Tela
 
-Entre na chamada, escolha 720p/1080p e clique **Compartilhar tela**. O navegador determina quais telas/janelas/abas e áudio podem ser compartilhados. Para áudio de aba, selecione a opção correspondente no diálogo do navegador. Os demais participantes recebem a faixa dentro da sala. Pare pelo botão do app ou pelo controle nativo do navegador.
+Antes de entrar, use **Sua prévia** para escolher microfone ligado/desligado e câmera ligada/desligada. Ligar a câmera mostra a imagem local; desligá-la ou sair libera a captura. Dentro da chamada, os controles permitem alternar microfone e câmera, compartilhar tela, abrir a soundboard e desconectar. Uma única câmera ocupa a área principal; com várias câmeras, os vídeos ficam em grade. A tela compartilhada tem prioridade na área principal.
+
+Clique **Compartilhar tela**. O seletor 720p/1080p só aparece enquanto você ou outra pessoa transmite a tela. O navegador determina quais telas/janelas/abas e áudio podem ser compartilhados. Para áudio de aba, selecione a opção correspondente no diálogo do navegador. Os demais participantes recebem a faixa dentro da sala. Pare pelo botão do app ou pelo controle nativo do navegador.
 
 ### 10. Soundboard
 

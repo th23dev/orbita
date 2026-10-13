@@ -61,6 +61,7 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
       'direct_conversation_members',
       'member_roles',
       'channel_permissions',
+      'channel_member_permissions',
       'roles',
     ]) {
       sub.on('postgres_changes', { event: '*', schema: 'public', table }, reload)

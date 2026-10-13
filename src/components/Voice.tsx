@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client'
-import type { Participant, RemoteParticipant } from 'livekit-client'
+import { ConnectionState, Room, RoomEvent, Track, createLocalVideoTrack } from 'livekit-client'
+import type { Participant, RemoteParticipant, LocalVideoTrack } from 'livekit-client'
+import { FunctionsHttpError, FunctionsFetchError } from '@supabase/supabase-js'
 import {
   AudioLines,
   Headphones,
@@ -13,14 +14,30 @@ import {
   Upload,
   Pencil,
   Trash2,
+  Users,
+  Signal,
+  Maximize,
+  Minimize,
+  X,
+  Radio,
+  Video,
+  VideoOff,
 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { addSound, deleteSound } from '../lib/files'
 import { Soundboard } from '../lib/soundboard'
 import type { Channel, Profile, Sound } from '../lib/types'
-import { Avatar, Empty, IconButton } from './ui'
+import { Avatar, IconButton } from './ui'
 
-function MediaTrack({ track }: { track: Track }) {
+function MediaTrack({
+  track,
+  camera = false,
+  mirror = false,
+}: {
+  track: Track
+  camera?: boolean
+  mirror?: boolean
+}) {
   const element = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const media = track.attach()
@@ -36,7 +53,11 @@ function MediaTrack({ track }: { track: Track }) {
   }, [track])
   return (
     <div
-      className={track.kind === Track.Kind.Video ? 'screen-stream' : 'audio-stream'}
+      className={
+        track.kind === Track.Kind.Video
+          ? `${camera ? 'camera-stream' : 'screen-stream'} ${mirror ? 'mirrored' : ''}`
+          : 'audio-stream'
+      }
       ref={element}
     />
   )
@@ -68,6 +89,30 @@ export function Voice({
     [volume, setVolume] = useState(initialVolume),
     [quality, setQuality] = useState('1080'),
     [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [soundboardOpen, setSoundboardOpen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [startWithMic, setStartWithMic] = useState(true)
+  const [previewCamera, setPreviewCamera] = useState<LocalVideoTrack | null>(null)
+  const [cameraBusy, setCameraBusy] = useState(false)
+  const [qualityBusy, setQualityBusy] = useState(false)
+  const previewCameraRef = useRef<LocalVideoTrack | null>(null)
+  const panel = useRef<HTMLElement>(null)
+  const soundboardToggle = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const changed = () => setFullscreen(document.fullscreenElement === panel.current)
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && soundboardOpen) {
+        setSoundboardOpen(false)
+        soundboardToggle.current?.focus()
+      }
+    }
+    document.addEventListener('fullscreenchange', changed)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('fullscreenchange', changed)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [soundboardOpen])
   const board = useRef<Soundboard | null>(null),
     input = useRef<HTMLInputElement>(null),
     mounted = useRef(true)
@@ -98,6 +143,7 @@ export function Voice({
       RoomEvent.ActiveSpeakersChanged,
       RoomEvent.LocalTrackPublished,
       RoomEvent.LocalTrackUnpublished,
+      RoomEvent.AudioPlaybackStatusChanged,
     ])
       room.on(event, update)
     void loadSounds().catch((e) => report(errorText(e)))
@@ -118,6 +164,8 @@ export function Voice({
       .subscribe()
     return () => {
       mounted.current = false
+      previewCameraRef.current?.stop()
+      previewCameraRef.current = null
       room.removeAllListeners()
       void board.current?.dispose()
       void room.disconnect()
@@ -143,16 +191,77 @@ export function Voice({
     const timer = setInterval(() => void checkAccess(), 15000)
     return () => clearInterval(timer)
   }, [joined, room, channel.id, report, leave])
+  async function togglePreviewCamera() {
+    if (previewCameraRef.current) {
+      previewCameraRef.current.stop()
+      previewCameraRef.current = null
+      setPreviewCamera(null)
+      return
+    }
+    setCameraBusy(true)
+    try {
+      const track = await createLocalVideoTrack({ resolution: { width: 1280, height: 720 } })
+      if (!mounted.current) {
+        track.stop()
+        return
+      }
+      previewCameraRef.current = track
+      setPreviewCamera(track)
+    } catch {
+      report(
+        'Não foi possível abrir a câmera. Verifique a permissão do navegador e se ela está disponível.',
+      )
+    } finally {
+      setCameraBusy(false)
+    }
+  }
+  async function changeScreenQuality(value: string) {
+    setQualityBusy(true)
+    try {
+      const dimensions = { width: value === '1080' ? 1920 : 1280, height: Number(value) }
+      const local = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
+      if (local)
+        await local.mediaStreamTrack.applyConstraints({
+          width: { ideal: dimensions.width, max: dimensions.width },
+          height: { ideal: dimensions.height, max: dimensions.height },
+          frameRate: { max: 15 },
+        })
+      for (const participant of room.remoteParticipants.values())
+        participant.getTrackPublication(Track.Source.ScreenShare)?.setVideoDimensions(dimensions)
+      setQuality(value)
+    } finally {
+      setQualityBusy(false)
+    }
+  }
   async function connect() {
     setJoining(true)
     try {
-      const { data, error } = await db().functions.invoke('livekit-token', {
-        body: { channel_id: channel.id },
-      })
-      if (error)
+      const requestToken = () =>
+        db().functions.invoke('livekit-token', {
+          body: { channel_id: channel.id },
+        })
+      let response = await requestToken()
+      if (response.error instanceof FunctionsHttpError && response.error.context.status === 401) {
+        const { error } = await db().auth.refreshSession()
+        if (!error) response = await requestToken()
+      }
+      const { data, error } = response
+      if (error instanceof FunctionsHttpError) {
+        const messages: Record<number, string> = {
+          401: 'Sua sessão expirou. Entre na sua conta novamente para participar.',
+          403: 'Você não tem acesso a este canal ou ele foi encerrado.',
+          429: 'Muitas tentativas de conexão. Aguarde um momento e tente novamente.',
+          503: 'O serviço de voz está indisponível. Tente novamente em instantes.',
+        }
         throw new Error(
-          'Não foi possível entrar na chamada. Configure a função livekit-token e as credenciais LiveKit no Supabase.',
+          messages[error.context.status] || 'Não foi possível iniciar a chamada. Tente novamente.',
         )
+      }
+      if (error instanceof FunctionsFetchError)
+        throw new Error(
+          'Não foi possível alcançar o serviço de voz. Verifique a conexão e tente novamente.',
+        )
+      if (error) throw new Error('O serviço de voz não respondeu. Tente novamente em instantes.')
       if (!data?.token || !data?.url)
         throw new Error('O serviço de voz retornou uma resposta inválida.')
       if (!mounted.current) return
@@ -164,7 +273,25 @@ export function Voice({
       board.current = new Soundboard(room)
       setJoined(true)
       await room.startAudio()
-      await room.localParticipant.setMicrophoneEnabled(true)
+      if (!mounted.current) return
+      if (previewCameraRef.current) {
+        const track = previewCameraRef.current
+        previewCameraRef.current = null
+        setPreviewCamera(null)
+        try {
+          await room.localParticipant.publishTrack(track, { source: Track.Source.Camera })
+        } catch {
+          track.stop()
+          report('Você entrou sem câmera. Tente ligá-la novamente nos controles da chamada.')
+        }
+      }
+      try {
+        if (startWithMic) await room.localParticipant.setMicrophoneEnabled(true)
+      } catch {
+        report(
+          'Você entrou com o microfone desligado. Permita o acesso ao microfone no navegador para falar.',
+        )
+      }
     } finally {
       setJoining(false)
     }
@@ -182,149 +309,435 @@ export function Voice({
       )
       .map((pub) => ({ track: pub.track!, name: p.name || p.identity, sid: pub.trackSid })),
   )
+  const screens = tracks.filter(({ track }) => track.kind === Track.Kind.Video)
+  const cameras = people.flatMap((person) => {
+    const publication = person.getTrackPublication(Track.Source.Camera)
+    return publication?.track && !publication.isMuted
+      ? [
+          {
+            track: publication.track,
+            name: person.name || person.identity,
+            sid: publication.trackSid,
+            local: person.isLocal,
+          },
+        ]
+      : []
+  })
+  const featuredCamera = screens.length === 0 && cameras.length === 1 ? cameras[0] : null
+  const connected = state === ConnectionState.Connected
+  const status = joining
+    ? 'Conectando…'
+    : state === ConnectionState.Reconnecting
+      ? 'Reconectando…'
+      : connected
+        ? 'Voz conectada'
+        : joined
+          ? 'Conexão encerrada'
+          : 'Canal de voz'
+  const toggleSoundboard = () => setSoundboardOpen((open) => !open)
   return (
-    <section className="voice-panel">
-      <div className="voice-heading">
-        <span className="eyebrow">ESPAÇO PARA ESTAR JUNTO</span>
-        <h1>
-          <Headphones size={30} /> {channel.name}
-        </h1>
-        <p>
-          {state === ConnectionState.Reconnecting
-            ? 'Reconectando à chamada…'
-            : state === ConnectionState.Connected
-              ? `${people.length} participante${people.length === 1 ? '' : 's'} na sala`
-              : joined
-                ? 'Conexão encerrada. Saia e entre novamente para reconectar.'
-                : 'Sua próxima conversa está a um clique.'}
-        </p>
-      </div>
-      {!joined ? (
-        <Empty icon={<AudioLines size={34} />} title="Pode chegar. A sala é sua.">
-          Converse por voz, compartilhe sua tela e dê play nos seus sons.
-          <button className="primary" disabled={joining} onClick={() => void run(connect)}>
-            {joining ? 'Conectando…' : 'Entrar na chamada'}
-            <Headphones size={18} />
-          </button>
-        </Empty>
-      ) : (
-        <>
-          <div className="participants">
-            {people.map((person) => (
-              <div
-                key={person.identity}
-                className={`participant ${person.isSpeaking ? 'speaking' : ''}`}
-              >
-                <Avatar profile={profiles.find((p) => p.id === person.identity)} />
-                <strong>
-                  {person.name ||
-                    profiles.find((p) => p.id === person.identity)?.display_name ||
-                    'Participante'}
-                  {person.isLocal ? ' (você)' : ''}
-                </strong>
-                <span>
-                  {person.isSpeaking
-                    ? 'Falando…'
-                    : person.isMicrophoneEnabled
-                      ? 'Na conversa'
-                      : 'Microfone desligado'}
-                </span>
-                {!person.isLocal && (
-                  <label>
-                    <Volume2 size={14} />
-                    <input
-                      aria-label={`Volume de ${person.name}`}
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      defaultValue="1"
-                      onChange={(e) =>
-                        (person as RemoteParticipant).setVolume(Number(e.target.value))
-                      }
-                    />
-                  </label>
-                )}
-              </div>
-            ))}
+    <section
+      className={`voice-panel ${soundboardOpen ? 'soundboard-open' : ''}`}
+      ref={panel}
+      aria-label="Sala de chamada"
+    >
+      <header className="call-header">
+        <div className="call-heading">
+          <span className="call-channel-icon">
+            <Headphones size={20} />
+          </span>
+          <div>
+            <h1>{channel.name}</h1>
+            <span className={`call-status ${connected ? 'connected' : ''}`} role="status">
+              <Signal size={12} />
+              {status}
+            </span>
           </div>
-          <div className="streams">
-            {tracks.map(({ track, name, sid }) => (
-              <div key={sid}>
-                {track.kind === Track.Kind.Video && (
-                  <span className="stream-label">Tela de {name}</span>
-                )}
-                <MediaTrack track={track} />
-              </div>
-            ))}
-          </div>
-          <div className="voice-controls">
-            <button
-              className="secondary"
-              onClick={() =>
-                void run(async () => {
-                  await room.localParticipant.setMicrophoneEnabled(
-                    !room.localParticipant.isMicrophoneEnabled,
-                  )
-                  setVersion((v) => v + 1)
-                })
-              }
-            >
-              {room.localParticipant.isMicrophoneEnabled ? <Mic size={18} /> : <MicOff size={18} />}
-              Microfone
-            </button>
-            <button
-              className="secondary"
-              onClick={() =>
-                void run(async () => {
-                  await room.localParticipant.setScreenShareEnabled(
-                    !room.localParticipant.isScreenShareEnabled,
-                    {
-                      audio: true,
-                      resolution: {
-                        width: quality === '1080' ? 1920 : 1280,
-                        height: Number(quality),
-                        frameRate: 15,
-                      },
-                    },
-                  )
-                  setVersion((v) => v + 1)
-                })
-              }
-            >
-              <MonitorUp size={18} />
-              {room.localParticipant.isScreenShareEnabled
-                ? 'Parar transmissão'
-                : 'Compartilhar tela'}
-            </button>
-            <select
-              aria-label="Qualidade de transmissão"
-              value={quality}
-              onChange={(e) => setQuality(e.target.value)}
-            >
-              <option value="1080">1080p</option>
-              <option value="720">720p</option>
-            </select>
-            <button className="danger" onClick={leave}>
-              <PhoneOff size={18} />
-              Sair
-            </button>
-          </div>
-          {!room.canPlaybackAudio && (
-            <button className="primary" onClick={() => void run(() => room.startAudio())}>
-              Ativar áudio da chamada
-            </button>
+        </div>
+        <div className="call-header-actions">
+          {joined && (
+            <span className="call-count">
+              <Users size={15} />
+              {people.length}
+              <span className="sr-only"> participantes</span>
+            </span>
           )}
-        </>
+          <IconButton
+            label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+            onClick={() =>
+              void run(async () => {
+                if (document.fullscreenElement) await document.exitFullscreen()
+                else await panel.current?.requestFullscreen()
+              })
+            }
+          >
+            {fullscreen ? <Minimize size={19} /> : <Maximize size={19} />}
+          </IconButton>
+        </div>
+      </header>
+      <div className={`call-stage ${screens.length || featuredCamera ? 'has-screen' : ''}`}>
+        {!joined ? (
+          <div className="call-lobby">
+            <div className="call-preview">
+              <span className="preview-badge">SUA PRÉVIA</span>
+              {previewCamera ? (
+                <MediaTrack track={previewCamera} camera mirror />
+              ) : (
+                <div className="preview-orbit">
+                  <Avatar profile={me} />
+                </div>
+              )}
+              <span className="preview-name">
+                {me.display_name}
+                <span>você</span>
+              </span>
+              <span className="preview-mic">
+                {startWithMic ? <Mic size={17} /> : <MicOff size={17} />}
+              </span>
+            </div>
+            <div className="preview-settings" aria-label="Como entrar na chamada">
+              <button
+                className={startWithMic ? '' : 'off'}
+                disabled={joining}
+                aria-pressed={startWithMic}
+                onClick={() => setStartWithMic((value) => !value)}
+              >
+                {startWithMic ? <Mic size={18} /> : <MicOff size={18} />}
+                <span>Microfone {startWithMic ? 'ligado' : 'desligado'}</span>
+              </button>
+              <button
+                className={previewCamera ? '' : 'off'}
+                disabled={joining || cameraBusy}
+                aria-pressed={Boolean(previewCamera)}
+                onClick={() => void togglePreviewCamera()}
+              >
+                {previewCamera ? <Video size={18} /> : <VideoOff size={18} />}
+                <span>
+                  {cameraBusy
+                    ? 'Abrindo câmera…'
+                    : `Câmera ${previewCamera ? 'ligada' : 'desligada'}`}
+                </span>
+              </button>
+            </div>
+            <div className="lobby-copy">
+              <h2>O melhor lugar é junto.</h2>
+              <p>
+                Entre em <strong>{channel.name}</strong> para conversar
+                <br />
+                ou compartilhar o que está na sua tela.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {featuredCamera && (
+              <div className="streams featured-camera">
+                <div className="screen-card">
+                  <div className="stream-label">
+                    <Video size={14} />
+                    <span>Câmera de {featuredCamera.name}</span>
+                    <b>AO VIVO</b>
+                  </div>
+                  <MediaTrack track={featuredCamera.track} camera mirror={featuredCamera.local} />
+                </div>
+              </div>
+            )}
+            {screens.length > 0 && (
+              <div className="streams">
+                {screens.map(({ track, name, sid }) => (
+                  <div className="screen-card" key={sid}>
+                    <div className="stream-label">
+                      <MonitorUp size={14} />
+                      <span>Tela de {name}</span>
+                      <b>AO VIVO</b>
+                    </div>
+                    <MediaTrack track={track} />
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className={`participants ${people.length === 1 ? 'solo' : ''}`}>
+              {people.map((person) => {
+                const profile = person.isLocal ? me : profiles.find((p) => p.id === person.identity)
+                const name = person.name || profile?.display_name || 'Participante'
+                const camera = person.getTrackPublication(Track.Source.Camera)
+                return (
+                  <div
+                    key={person.identity}
+                    className={`participant ${person.isSpeaking ? 'speaking' : ''}`}
+                  >
+                    {person.isSpeaking && (
+                      <span className="speaking-indicator">
+                        <AudioLines size={13} />
+                        Falando
+                      </span>
+                    )}
+                    {camera?.track && !camera.isMuted && camera.trackSid !== featuredCamera?.sid ? (
+                      <MediaTrack track={camera.track} camera mirror={person.isLocal} />
+                    ) : (
+                      <div className="participant-avatar">
+                        <Avatar profile={profile} />
+                      </div>
+                    )}
+                    <div className="participant-bottom">
+                      <span className="participant-name">
+                        {name}
+                        {person.isLocal && <small>você</small>}
+                      </span>
+                      <span
+                        className={`participant-mic ${!person.isMicrophoneEnabled ? 'muted' : ''}`}
+                        aria-label={
+                          person.isMicrophoneEnabled ? 'Microfone ligado' : 'Microfone desligado'
+                        }
+                      >
+                        {person.isMicrophoneEnabled ? <Mic size={15} /> : <MicOff size={15} />}
+                      </span>
+                    </div>
+                    {!person.isLocal && (
+                      <label className="participant-volume">
+                        <Volume2 size={14} />
+                        <input
+                          aria-label={`Volume de ${name}`}
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          defaultValue="1"
+                          onChange={(e) =>
+                            (person as RemoteParticipant).setVolume(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {people.length === 1 && (
+              <p className="call-alone">
+                Você chegou primeiro. A sala está aberta para a conversa.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+      <div className="call-audio" aria-hidden="true">
+        {tracks
+          .filter(({ track }) => track.kind === Track.Kind.Audio)
+          .map(({ track, sid }) => (
+            <MediaTrack key={sid} track={track} />
+          ))}
+      </div>
+      {joined && !room.canPlaybackAudio && (
+        <button className="call-audio-notice" onClick={() => void run(() => room.startAudio())}>
+          <Volume2 size={16} />
+          Clique para ativar o áudio
+        </button>
       )}
-      <div className="soundboard">
+      <footer className="call-footer">
+        {!joined ? (
+          <div className="call-join-row">
+            <button
+              className="call-join"
+              disabled={joining || cameraBusy}
+              onClick={() => void run(connect)}
+            >
+              <Headphones size={21} />
+              {joining ? 'Conectando…' : 'Entrar na chamada'}
+            </button>
+            <button
+              ref={soundboardToggle}
+              className={`call-control ${soundboardOpen ? 'active' : ''}`}
+              title="Soundboard"
+              aria-label="Soundboard"
+              aria-expanded={soundboardOpen}
+              aria-controls="call-soundboard"
+              onClick={toggleSoundboard}
+            >
+              <AudioLines size={22} />
+            </button>
+          </div>
+        ) : (
+          <div className="voice-controls">
+            <div className="call-control-group">
+              <button
+                className={`call-control ${!room.localParticipant.isMicrophoneEnabled ? 'is-muted' : ''}`}
+                disabled={!connected || joining}
+                title={
+                  room.localParticipant.isMicrophoneEnabled
+                    ? 'Desligar microfone'
+                    : 'Ligar microfone'
+                }
+                aria-label={
+                  room.localParticipant.isMicrophoneEnabled
+                    ? 'Desligar microfone'
+                    : 'Ligar microfone'
+                }
+                aria-pressed={room.localParticipant.isMicrophoneEnabled}
+                onClick={() =>
+                  void run(async () => {
+                    await room.localParticipant.setMicrophoneEnabled(
+                      !room.localParticipant.isMicrophoneEnabled,
+                    )
+                    setVersion((v) => v + 1)
+                  })
+                }
+              >
+                {room.localParticipant.isMicrophoneEnabled ? (
+                  <Mic size={23} />
+                ) : (
+                  <MicOff size={23} />
+                )}
+              </button>
+              <span>Microfone</span>
+            </div>
+            <div className="call-control-group">
+              <button
+                className={`call-control ${room.localParticipant.isCameraEnabled ? 'active' : ''}`}
+                disabled={!connected || joining || cameraBusy}
+                title={room.localParticipant.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}
+                aria-label={
+                  room.localParticipant.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'
+                }
+                aria-pressed={room.localParticipant.isCameraEnabled}
+                onClick={() =>
+                  void run(async () => {
+                    setCameraBusy(true)
+                    try {
+                      const enabled = !room.localParticipant.isCameraEnabled
+                      await room.localParticipant.setCameraEnabled(enabled, {
+                        resolution: { width: 1280, height: 720 },
+                      })
+                      setVersion((v) => v + 1)
+                    } catch {
+                      throw new Error(
+                        'Não foi possível alterar a câmera. Verifique a permissão do navegador e tente novamente.',
+                      )
+                    } finally {
+                      setCameraBusy(false)
+                    }
+                  })
+                }
+              >
+                {room.localParticipant.isCameraEnabled ? (
+                  <Video size={23} />
+                ) : (
+                  <VideoOff size={23} />
+                )}
+              </button>
+              <span>Câmera</span>
+            </div>
+            <div className="call-control-group">
+              <button
+                className={`call-control ${room.localParticipant.isScreenShareEnabled ? 'active' : ''}`}
+                disabled={!connected || joining}
+                title={
+                  room.localParticipant.isScreenShareEnabled
+                    ? 'Parar transmissão'
+                    : 'Compartilhar tela'
+                }
+                aria-label={
+                  room.localParticipant.isScreenShareEnabled
+                    ? 'Parar transmissão'
+                    : 'Compartilhar tela'
+                }
+                aria-pressed={room.localParticipant.isScreenShareEnabled}
+                onClick={() =>
+                  void run(async () => {
+                    await room.localParticipant.setScreenShareEnabled(
+                      !room.localParticipant.isScreenShareEnabled,
+                      {
+                        audio: true,
+                        resolution: {
+                          width: quality === '1080' ? 1920 : 1280,
+                          height: Number(quality),
+                          frameRate: 15,
+                        },
+                      },
+                    )
+                    setVersion((v) => v + 1)
+                  })
+                }
+              >
+                <MonitorUp size={23} />
+              </button>
+              <span>Tela</span>
+            </div>
+            <div className="call-control-group">
+              <button
+                ref={soundboardToggle}
+                className={`call-control ${soundboardOpen ? 'active' : ''}`}
+                title="Soundboard"
+                aria-label="Soundboard"
+                aria-expanded={soundboardOpen}
+                aria-controls="call-soundboard"
+                onClick={toggleSoundboard}
+              >
+                <AudioLines size={23} />
+              </button>
+              <span>Sons</span>
+            </div>
+            <span className="call-control-divider" />
+            <div className="call-control-group">
+              <button
+                className="call-control hangup"
+                title="Sair da chamada"
+                aria-label="Sair da chamada"
+                onClick={leave}
+              >
+                <PhoneOff size={23} />
+              </button>
+              <span>Desconectar</span>
+            </div>
+          </div>
+        )}
+        <div className="call-footer-meta">
+          <span>
+            <Radio size={12} />
+            {joined
+              ? status
+              : `${startWithMic ? 'Microfone ligado' : 'Microfone desligado'} · ${previewCamera ? 'Câmera ligada' : 'Câmera desligada'} ao entrar`}
+          </span>
+          {joined && screens.length > 0 && (
+            <label className="call-quality">
+              Qualidade da tela
+              <select
+                aria-label="Qualidade de transmissão"
+                value={quality}
+                onChange={(e) => void run(() => changeScreenQuality(e.target.value))}
+                disabled={qualityBusy || !connected}
+              >
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+              </select>
+            </label>
+          )}
+        </div>
+      </footer>
+      <aside
+        className="soundboard"
+        id="call-soundboard"
+        aria-label="Soundboard"
+        hidden={!soundboardOpen}
+      >
         <header>
           <div>
             <h2>
-              <AudioLines size={20} /> Sua soundboard
+              <AudioLines size={20} /> Soundboard
             </h2>
-            <p>Um som, a sala inteira ouvindo. Até 30 segundos por áudio.</p>
+            <p>Seus sons. A sala inteira ouvindo.</p>
           </div>
+          <IconButton
+            label="Fechar soundboard"
+            onClick={() => {
+              setSoundboardOpen(false)
+              soundboardToggle.current?.focus()
+            }}
+          >
+            <X size={19} />
+          </IconButton>
+        </header>
+        <div className="soundboard-upload">
           <input
             type="file"
             ref={input}
@@ -353,7 +766,7 @@ export function Voice({
             <Upload size={16} />
             Adicionar som
           </button>
-        </header>
+        </div>
         {uploadProgress !== null && <progress value={uploadProgress} max={100} />}
         <div className="sound-grid">
           {sounds.map((sound, i) => (
@@ -445,7 +858,7 @@ export function Voice({
             Parar sons
           </button>
         </footer>
-      </div>
+      </aside>
     </section>
   )
 }

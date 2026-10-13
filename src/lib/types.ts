@@ -13,7 +13,13 @@ export type Settings = {
   notifications: boolean
   soundboard_volume: number
 }
-export type Server = { id: string; name: string; owner_id: string; description: string }
+export type Server = {
+  id: string
+  name: string
+  owner_id: string
+  description: string
+  icon_path: string | null
+}
 export type Channel = {
   id: string
   server_id: string
