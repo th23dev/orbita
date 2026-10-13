@@ -34,16 +34,18 @@ export class Soundboard {
     })()
     return this.init
   }
-  async play(data: ArrayBuffer, volume: number) {
+  async play(load: () => Promise<ArrayBuffer>, volume: number) {
     if (this.disposed) throw new Error('Entre em uma chamada para tocar um som.')
+    this.stop()
     const generation = this.generation
     await this.initialize()
     if (this.disposed || generation !== this.generation) return
     await this.context!.resume()
+    const data = await load()
+    if (this.disposed || generation !== this.generation) return
     const buffer = await this.context!.decodeAudioData(data)
     if (this.disposed || generation !== this.generation) return
     if (buffer.duration > 30) throw new Error('Use sons com até 30 segundos.')
-    this.stop()
     this.setVolume(volume)
     const source = this.context!.createBufferSource()
     source.buffer = buffer

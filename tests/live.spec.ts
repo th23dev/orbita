@@ -58,14 +58,17 @@ test('Two authenticated browsers synchronize messages, edits, reactions and file
     await remote.hover()
     await remote.getByRole('button', { name: 'Reagir', exact: true }).click()
     await remote.getByRole('button', { name: '👍', exact: true }).click()
-    await expect(item.locator('.reactions')).toContainText('👍')
-    await alice
-      .locator('input[type=file]')
-      .setInputFiles({
-        name: 'qa.txt',
-        mimeType: 'text/plain',
-        buffer: Buffer.from(`persistent-file-${tag}`),
-      })
+    await expect(
+      alice
+        .locator('article')
+        .filter({ hasText: `Editado ${tag}` })
+        .locator('.reactions'),
+    ).toContainText('👍')
+    await alice.locator('input[type=file]').setInputFiles({
+      name: 'qa.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from(`persistent-file-${tag}`),
+    })
     await alice.getByRole('button', { name: 'Enviar mensagem' }).click()
     await expect(bob.getByText('qa.txt', { exact: true })).toBeVisible()
     const downloading = bob.waitForEvent('download')

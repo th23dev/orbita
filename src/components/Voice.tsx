@@ -363,8 +363,10 @@ export function Voice({
                 disabled={!joined || state !== ConnectionState.Connected}
                 onClick={() =>
                   void run(async () => {
-                    const blob = check(await db().storage.from('sounds').download(sound.path))
-                    await board.current!.play(await blob.arrayBuffer(), volume)
+                    await board.current!.play(async () => {
+                      const blob = check(await db().storage.from('sounds').download(sound.path))
+                      return blob.arrayBuffer()
+                    }, volume)
                   })
                 }
               >

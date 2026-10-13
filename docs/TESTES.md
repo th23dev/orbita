@@ -2,7 +2,7 @@
 
 ## O que pode ser verificado sem serviços externos
 
-`npm test` valida arquivos vazios/grandes, formatos de avatar/soundboard e bloqueio de prévias ativas de HTML/SVG/PDF.
+`npm test` valida arquivos vazios/grandes, formatos de avatar/soundboard e bloqueio de prévias ativas de HTML/SVG/PDF. Os testes unitários de áudio usam substitutos de AudioContext/LiveKit para verificar publicação da faixa, liberação de recursos e interrupção durante downloads; não provam audibilidade entre dispositivos.
 
 `npm run test:db` executa a migration em um motor PostgreSQL real em WebAssembly (PGlite). Os schemas `auth`, `storage` e `realtime` têm estruturas mínimas para exercitar SQL, privilégios e políticas. São 22 cenários com Alice, Bob e Eve. Isso valida RLS, mas **não substitui** Supabase Auth, Storage HTTP ou replicação Realtime de um projeto real.
 
@@ -55,6 +55,6 @@ Registre navegador/versão, sistema, dispositivo, rede, URL e horário para cada
 
 ## Situação nesta entrega
 
-Validações locais: build TypeScript/Vite, 4 testes de arquivos, 22 cenários SQL e 4 verificações Playwright de interface. Auditoria npm das dependências de produção: sem vulnerabilidades reportadas na execução.
+Validações locais: build TypeScript/Vite, 7 testes unitários (4 de arquivos e 3 do ciclo de áudio), 22 cenários SQL e 4 verificações Playwright de interface. Auditoria npm das dependências de produção: sem vulnerabilidades reportadas na execução.
 
 **Pendente:** login real, replicação Supabase, armazenamento HTTP, fluxo de e-mail, voz entre dispositivos, tela e áudio remoto da soundboard. O usuário optou por preparar um novo projeto Supabase; ele e a instância LiveKit ainda precisam ser configurados.
