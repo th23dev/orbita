@@ -57,4 +57,6 @@ Registre navegador/versão, sistema, dispositivo, rede, URL e horário para cada
 
 Validações locais: build TypeScript/Vite, 7 testes unitários (4 de arquivos e 3 do ciclo de áudio), 22 cenários SQL e 4 verificações Playwright de interface. Auditoria npm das dependências de produção: sem vulnerabilidades reportadas na execução.
 
-**Pendente:** login real, replicação Supabase, armazenamento HTTP, fluxo de e-mail, voz entre dispositivos, tela e áudio remoto da soundboard. O usuário optou por preparar um novo projeto Supabase; ele e a instância LiveKit ainda precisam ser configurados.
+**Provisionamento remoto verificado:** projeto `orbita` ativo em São Paulo; 16 tabelas com RLS, três buckets privados e 15 tabelas na publicação Realtime. Auth HTTP acessível com confirmação de e-mail habilitada; leitura anônima de perfis negada com HTTP 401. Security Advisor sem apontamentos de SQL/RLS, mas com alerta de proteção contra senhas vazadas desativada no Auth (ver guia de ativação). Índice composto e políticas redundantes corrigidos após Performance Advisor; restam apenas informações de índices ainda não usados em um banco novo.
+
+**Pendente:** login real, replicação entre usuários, upload/download HTTP, fluxo de e-mail, voz entre dispositivos, tela e áudio remoto da soundboard. Conclua [a ativação](ATIVACAO.md) antes de executar o roteiro.

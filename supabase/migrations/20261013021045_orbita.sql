@@ -1,4 +1,5 @@
 -- Órbita: identity, membership, conversations, media, and scoped authorization.
+-- Filename matches the migration version applied to the hosted Orbita project.
 create schema if not exists private;
 revoke all on schema private from public, anon;
 grant usage on schema private to authenticated;

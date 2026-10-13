@@ -1,5 +1,6 @@
 // Credentials stay in process memory and are sent only to api.github.com.
 import { spawnSync } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 const result = spawnSync('git', ['credential', 'fill'], {
   input: 'protocol=https\nhost=github.com\n\n',
   encoding: 'utf8',
@@ -61,4 +62,30 @@ if (process.argv[2] === 'create') {
 if (process.argv[2] === 'pages') {
   await request('/repos/th23dev/orbita/pages', 'POST', { build_type: 'workflow' })
   console.log('GitHub Pages enabled with GitHub Actions.')
+}
+if (process.argv[2] === 'configure-supabase') {
+  const env = Object.fromEntries(
+    (await readFile('.env.local', 'utf8'))
+      .split(/\r?\n/)
+      .filter((line) => line && !line.startsWith('#'))
+      .map((line) => {
+        const i = line.indexOf('=')
+        return [line.slice(0, i), line.slice(i + 1)]
+      }),
+  )
+  if (
+    env.VITE_SUPABASE_URL !== 'https://wjzirjfoaabpmyehzbtb.supabase.co' ||
+    !env.VITE_SUPABASE_PUBLISHABLE_KEY?.startsWith('sb_publishable_')
+  )
+    throw new Error('Expected the public configuration of the new Orbita project.')
+  const existing = await request('/repos/th23dev/orbita/actions/variables')
+  for (const name of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY']) {
+    const present = existing.variables.some((variable) => variable.name === name)
+    await request(
+      `/repos/th23dev/orbita/actions/variables${present ? `/${name}` : ''}`,
+      present ? 'PATCH' : 'POST',
+      { name, value: env[name] },
+    )
+    console.log(`Configured GitHub Actions variable: ${name}`)
+  }
 }

@@ -8,9 +8,11 @@
 
 ## Estado da entrega
 
-O código das funcionalidades está implementado. O site sem variáveis de ambiente mostra **conexão ainda não configurada** e mantém a autenticação desabilitada. Não há usuários, mensagens, sons ou chamadas fictícios.
+O código das funcionalidades está implementado. O frontend está vinculado ao projeto Supabase **orbita**, na organização **th23dev**, região São Paulo. As variáveis públicas de conexão estão configuradas no GitHub Actions. Não há usuários, mensagens, sons ou chamadas fictícios.
 
-**Ainda é necessário configurar um novo projeto Supabase e uma instância LiveKit.** Nenhum projeto existente foi alterado. Os testes com usuários em dispositivos diferentes e a validação de voz/tela/soundboard dependem desses serviços; não foram executados contra um backend remoto nesta entrega. Veja [o roteiro de aceitação](docs/TESTES.md).
+**Projeto Supabase criado:** [abrir painel](https://supabase.com/dashboard/project/wjzirjfoaabpmyehzbtb). As 16 tabelas com RLS, os três buckets privados, a publicação Realtime e a função `livekit-token` foram aplicados e verificados. O projeto anterior `th23dev` não foi alterado.
+
+**Pendências de ativação:** URLs de autenticação, configuração de envio de e-mail, opção de acesso público Realtime e credenciais LiveKit. Veja [ATIVACAO.md](docs/ATIVACAO.md). Os testes com usuários em dispositivos diferentes e a validação de mídia ainda não foram executados.
 
 ## Rodar localmente
 
@@ -59,7 +61,7 @@ npx supabase db push --dry-run
 npx supabase db push
 ```
 
-A migration `supabase/migrations/20261013005048_orbita.sql` cria 16 tabelas: as 15 entidades solicitadas mais `user_settings`. Inclui relacionamentos, índices, busca textual, gatilhos, grants por coluna e RLS. Destina-se a um **projeto vazio**, sem tabelas de mesmo nome.
+A migration `supabase/migrations/20261013021045_orbita.sql` cria 16 tabelas: as 15 entidades solicitadas mais `user_settings`. Inclui relacionamentos, índices, busca textual, gatilhos, grants por coluna e RLS. A migration seguinte otimiza índices e políticas. **Ambas já estão aplicadas no projeto orbita**; os passos de criação do banco são para reproduzir o ambiente em outro projeto vazio.
 
 Alternativa sem CLI: execute todo o arquivo da migration no SQL Editor do projeto novo. Escolha **um** método; não execute o mesmo SQL duas vezes. Se optar pelo SQL Editor, ajuste o histórico antes de voltar a usar migrations pela CLI.
 

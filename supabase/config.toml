@@ -13,8 +13,8 @@ major_version = 17
 
 [auth]
 enabled = true
-site_url = "http://localhost:5173"
-additional_redirect_urls = ["http://localhost:5173", "http://127.0.0.1:5173"]
+site_url = "https://th23dev.github.io/orbita/"
+additional_redirect_urls = ["https://th23dev.github.io/orbita/", "http://localhost:5173/", "http://127.0.0.1:5173/"]
 jwt_expiry = 900
 enable_signup = true
 
