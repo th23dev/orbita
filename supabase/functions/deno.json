@@ -1,0 +1,5 @@
+{
+  "nodeModulesDir": "auto",
+  "compilerOptions": { "strict": true },
+  "lock": true
+}
