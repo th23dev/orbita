@@ -11,13 +11,13 @@ Projeto criado na organização **th23dev**, região **São Paulo (`sa-east-1`)*
 - Duas migrations versionadas; 16 tabelas, relacionamentos, índices, grants e RLS.
 - Buckets privados `attachments`, `sounds` e `avatars`.
 - 15 tabelas na publicação `supabase_realtime`.
-- Função `livekit-token` publicada, com validação de sessão dentro do handler. Não emite tokens sem a configuração de origem e LiveKit.
+- Função `livekit-token` publicada, com validação de sessão dentro do handler. LiveKit Cloud `orbita` conectado; `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` e `ALLOWED_ORIGINS` gravados e conferidos no Supabase.
 - URL e chave publishable no `.env.local` ignorado pelo Git e nas variáveis públicas do GitHub Actions. Nenhuma chave administrativa no frontend.
 - Security Advisor sem apontamentos de SQL/RLS; Auth aponta **proteção contra senhas vazadas desativada**. Confira a [configuração oficial de proteção de senhas](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection). Performance Advisor sem os avisos de índice ausente ou políticas sobrepostas após a correção. As informações de índices ainda não usados são esperadas antes do tráfego: [explicação oficial](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index).
 
 ## Configurações que ainda precisam ser aplicadas
 
-O conector disponível permite criar projetos, aplicar SQL e publicar funções, mas não alterar estas configurações de Auth/Realtime/Secrets. A CLI local não está autenticada; nenhuma configuração remota foi presumida a partir do arquivo local.
+O conector disponível permite criar projetos, aplicar SQL e publicar funções. A CLI local já foi autenticada e utilizada para configurar os segredos do LiveKit. Os ajustes de Auth/Realtime abaixo continuam pendentes; nenhuma configuração remota foi presumida a partir do arquivo local.
 
 1. Em [Authentication → URL Configuration](https://supabase.com/dashboard/project/wjzirjfoaabpmyehzbtb/auth/url-configuration), defina Site URL como `https://th23dev.github.io/orbita/`. Em Redirect URLs, inclua essa mesma URL, `http://127.0.0.1:5173/` e `http://localhost:5173/`.
 2. Configure SMTP para envio de confirmações e recuperação. Mantenha confirmação de e-mail habilitada. O provedor de envio padrão tem restrições; cadastro/envio para endereços arbitrários não foi validado.
@@ -30,7 +30,7 @@ O conector disponível permite criar projetos, aplicar SQL e publicar funções,
    npx supabase config push --project-ref wjzirjfoaabpmyehzbtb
    ```
 
-5. Crie/configure uma instância LiveKit. No painel Supabase de segredos das Edge Functions, defina `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` e `ALLOWED_ORIGINS=https://th23dev.github.io,http://127.0.0.1:5173,http://localhost:5173`. Os segredos nunca devem ser enviados ao chat, incluídos no Git ou ter prefixo `VITE_`.
-6. Siga [TESTES.md](TESTES.md) com duas contas reais e um terceiro usuário não autorizado. Voz/tela/soundboard exigem uma instância LiveKit operacional.
+5. LiveKit já configurado em `wss://orbita-v7obpsup.livekit.cloud`. Consulte [LIVEKIT.md](LIVEKIT.md) para manutenção e validação. Os segredos nunca devem ser enviados ao chat, incluídos no Git ou ter prefixo `VITE_`.
+6. Siga [TESTES.md](TESTES.md) com duas contas reais e um terceiro usuário não autorizado para validar microfones, tela e áudio nos dispositivos finais.
 
 As migrations locais correspondem às versões registradas no projeto. Não execute manualmente a migration inicial novamente nesse banco.

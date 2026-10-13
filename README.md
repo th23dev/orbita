@@ -12,7 +12,9 @@ O código das funcionalidades está implementado. O frontend está vinculado ao 
 
 **Projeto Supabase criado:** [abrir painel](https://supabase.com/dashboard/project/wjzirjfoaabpmyehzbtb). As 16 tabelas com RLS, os três buckets privados, a publicação Realtime e a função `livekit-token` foram aplicados e verificados. O projeto anterior `th23dev` não foi alterado.
 
-**Pendências de ativação:** URLs de autenticação, configuração de envio de e-mail, opção de acesso público Realtime e credenciais LiveKit. Veja [ATIVACAO.md](docs/ATIVACAO.md). Os testes com usuários em dispositivos diferentes e a validação de mídia ainda não foram executados.
+**LiveKit configurado:** projeto `orbita` conectado ao Supabase; tokens e transmissão de áudio entre dois navegadores validados. Veja [LIVEKIT.md](docs/LIVEKIT.md).
+
+**Pendências de ativação:** URLs de autenticação, configuração de envio de e-mail e opção de acesso público Realtime. Veja [ATIVACAO.md](docs/ATIVACAO.md). Captura de microfone/tela e testes em dispositivos diferentes continuam pendentes.
 
 ## Rodar localmente
 
