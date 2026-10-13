@@ -88,7 +88,13 @@ Validação: cadastre duas contas com e-mails distintos, confirme os e-mails e t
 
 ### 5. Servidores, canais, cargos e convites
 
-O botão `+` na barra de servidores cria um servidor, com canal `geral` e sala de voz iniciais. O proprietário gerencia canais, convites, cargos e permissões no menu do servidor. Um convite expira em 7 dias e permite até 25 entradas. Copie o código para outro usuário e use **Entrar com convite**.
+O botão `+` na barra de servidores cria um servidor, com canal `geral` e sala de voz iniciais. O proprietário gerencia canais, convites, cargos e permissões no menu do servidor.
+
+Use **Adicionar membros** na lista de canais para buscar uma conta pelo nome ou `@usuário` e adicioná-la diretamente. Só o proprietário tem essa permissão. Na mesma janela, **Criar link de convite** gera um link que pode ser copiado ou compartilhado pelo menu nativo do celular, quando disponível. O convite expira em 7 dias e permite até 25 entradas; o proprietário pode revogá-lo. Quem abre o link faz login e confirma **Entrar no servidor**. Também é possível colar o link completo ou o código em **Entrar com convite**. Links copiados no ambiente local apontam para o Pages público para funcionar em outros dispositivos.
+
+No celular, a barra inferior dá acesso a **Servidores**, **Amigos**, **Chamada** e **Perfil**. Servidores/canais e membros abrem em painéis separados, com fechamento pelo botão ou pelo fundo escuro. As opções de cada mensagem ficam no botão **⋯**, preservando espaço para o texto.
+
+Os canais de voz mostram abaixo do nome quem está na chamada, com avatar, microfone desligado e indicadores de câmera/tela. A lista é atualizada por presença Realtime e só aparece para quem tem acesso ao canal; não é necessário entrar na chamada para consultá-la.
 
 Canais privados exigem um cargo autorizado ou acesso individual em **Gerenciar servidor → Canais e acesso → Permissões por usuário**; o proprietário conserva acesso. Para retirar um acesso herdado, remova o cargo ou a permissão desse cargo. Essas permissões permitem ver o canal e participar da conversa; a administração cabe ao proprietário. Arquivar remove o canal da navegação; o histórico continua no banco. Restaurar exige uma alteração administrativa de `archived` para `false`.
 
@@ -140,6 +146,8 @@ npx deno check --config supabase/functions/deno.json supabase/functions/livekit-
 ### 9. Tela
 
 Antes de entrar, use **Sua prévia** para escolher microfone ligado/desligado e câmera ligada/desligada. Ligar a câmera mostra a imagem local; desligá-la ou sair libera a captura. Dentro da chamada, os controles permitem alternar microfone e câmera, compartilhar tela, abrir a soundboard e desconectar. Uma única câmera ocupa a área principal; com várias câmeras, os vídeos ficam em grade. A tela compartilhada tem prioridade na área principal.
+
+As miniaturas usam proporção 16:9 e largura limitada. A transmissão em destaque ocupa a área principal disponível, preservando a proporção do vídeo; em telas grandes, as miniaturas ficam na lateral. Quando houver mais de uma câmera ou tela, use o seletor de transmissões acima do vídeo para escolher o destaque. A escolha é individual e não altera o que os outros assistem. **Destaque automático** restaura a prioridade da tela; se a transmissão escolhida terminar, outra disponível assume o lugar.
 
 Clique **Compartilhar tela**. O seletor 720p/1080p só aparece enquanto você ou outra pessoa transmite a tela. O navegador determina quais telas/janelas/abas e áudio podem ser compartilhados. Para áudio de aba, selecione a opção correspondente no diálogo do navegador. Os demais participantes recebem a faixa dentro da sala. Pare pelo botão do app ou pelo controle nativo do navegador.
 

@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   MessageCircle,
   Check,
+  MoreHorizontal,
 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { attachFile, bytes, safePreview, signedUrl, validateFile } from '../lib/files'
@@ -84,6 +85,7 @@ export function Chat({
   report: (s: string) => void
 }) {
   const chat = useChat(space, userId, report)
+  const [actionFor, setActionFor] = useState<string | null>(null)
   const [content, setContent] = useState(''),
     [reply, setReply] = useState<Message | null>(null),
     [editing, setEditing] = useState<string | null>(null),
@@ -296,7 +298,10 @@ export function Chat({
             reactions = chat.reactions.filter((r) => r.message_id === message.id),
             parent = chat.messages.find((m) => m.id === message.reply_to)
           return (
-            <article className={`message ${message.deleted_at ? 'deleted' : ''}`} key={message.id}>
+            <article
+              className={`message ${message.deleted_at ? 'deleted' : ''} ${actionFor === message.id ? 'actions-open' : ''}`}
+              key={message.id}
+            >
               <Avatar profile={author} />
               <div className="message-body">
                 <div className="message-meta">
@@ -382,55 +387,66 @@ export function Chat({
                 )}
               </div>
               {!message.deleted_at && (
-                <div className="message-actions">
-                  <IconButton
-                    label="Reagir"
-                    onClick={() => setEmojiFor(emojiFor === message.id ? null : message.id)}
+                <>
+                  <button
+                    type="button"
+                    className="message-more"
+                    aria-label="Opções da mensagem"
+                    aria-expanded={actionFor === message.id}
+                    onClick={() => setActionFor(actionFor === message.id ? null : message.id)}
                   >
-                    <Smile size={16} />
-                  </IconButton>
-                  <IconButton label="Responder" onClick={() => setReply(message)}>
-                    <Reply size={16} />
-                  </IconButton>
-                  {own && (
-                    <>
-                      <IconButton
-                        label="Editar mensagem"
-                        onClick={() => {
-                          setEditing(message.id)
-                          setEditText(message.content)
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </IconButton>
-                      <IconButton
-                        label="Excluir mensagem"
-                        onClick={() => {
-                          if (window.confirm('Excluir esta mensagem?'))
-                            void run(async () => {
-                              check(
-                                await db()
-                                  .from('messages')
-                                  .update({ deleted_at: new Date().toISOString() })
-                                  .eq('id', message.id),
-                              )
-                            })
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </IconButton>
-                    </>
-                  )}
-                  {emojiFor === message.id && (
-                    <div className="emoji-menu">
-                      {['👍', '❤️', '😂', '🎉', '🔥', '👀'].map((emoji) => (
-                        <button key={emoji} onClick={() => void run(() => react(message, emoji))}>
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    <MoreHorizontal size={20} />
+                  </button>
+                  <div className="message-actions">
+                    <IconButton
+                      label="Reagir"
+                      onClick={() => setEmojiFor(emojiFor === message.id ? null : message.id)}
+                    >
+                      <Smile size={16} />
+                    </IconButton>
+                    <IconButton label="Responder" onClick={() => setReply(message)}>
+                      <Reply size={16} />
+                    </IconButton>
+                    {own && (
+                      <>
+                        <IconButton
+                          label="Editar mensagem"
+                          onClick={() => {
+                            setEditing(message.id)
+                            setEditText(message.content)
+                          }}
+                        >
+                          <Pencil size={15} />
+                        </IconButton>
+                        <IconButton
+                          label="Excluir mensagem"
+                          onClick={() => {
+                            if (window.confirm('Excluir esta mensagem?'))
+                              void run(async () => {
+                                check(
+                                  await db()
+                                    .from('messages')
+                                    .update({ deleted_at: new Date().toISOString() })
+                                    .eq('id', message.id),
+                                )
+                              })
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </IconButton>
+                      </>
+                    )}
+                    {emojiFor === message.id && (
+                      <div className="emoji-menu">
+                        {['👍', '❤️', '😂', '🎉', '🔥', '👀'].map((emoji) => (
+                          <button key={emoji} onClick={() => void run(() => react(message, emoji))}>
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </article>
           )

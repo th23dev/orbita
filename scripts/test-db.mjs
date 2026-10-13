@@ -346,6 +346,21 @@ await test('Revoking a role immediately prevents future private reads', async ()
     0,
   )
 })
+await test('Voice rosters inherit private-channel authorization, including revoked access', async () => {
+  const topic = `channel:${privateChannel.id}:voice-roster`
+  assert.equal(
+    (await as(ids[0], 'select private.can_topic($1) as allowed', [topic]))[0].allowed,
+    true,
+  )
+  assert.equal(
+    (await as(ids[1], 'select private.can_topic($1) as allowed', [topic]))[0].allowed,
+    false,
+  )
+  assert.equal(
+    (await as(ids[2], 'select private.can_topic($1) as allowed', [topic]))[0].allowed,
+    false,
+  )
+})
 await test('Deleting messages clears content and prevents attachment access', async () => {
   await as(ids[1], 'update messages set deleted_at=now() where id=$1', [message.id])
   assert.equal(
@@ -371,6 +386,32 @@ await test('Sound libraries are private and validate media types', async () => {
     ids[0],
     "insert into soundboard_sounds(owner_id,name,path,mime_type,size) values($1,'bad','bad','text/html',100)",
     [ids[0]],
+  )
+})
+await test('Only the server owner can add existing users directly', async () => {
+  const target = (
+    await as(
+      ids[0],
+      "insert into servers(owner_id,name) values($1,'Direct membership') returning id",
+      [ids[0]],
+    )
+  )[0]
+  const insert = 'insert into server_members(server_id,user_id) values($1,$2)'
+  await denied(ids[1], insert, [target.id, ids[1]])
+  await denied(ids[1], insert, [target.id, ids[2]])
+  await as(ids[0], insert, [target.id, ids[1]])
+  assert.equal((await as(ids[1], 'select * from servers where id=$1', [target.id])).length, 1)
+  await denied(ids[1], insert, [target.id, ids[2]])
+  await as(ids[0], insert, [target.id, ids[2]])
+  assert.equal(
+    (await as(ids[2], 'select * from channels where server_id=$1', [target.id])).length,
+    2,
+  )
+  await denied(ids[0], insert, [target.id, crypto.randomUUID()])
+  await denied(
+    ids[0],
+    'insert into server_members(server_id,user_id,joined_at) values($1,$2,now())',
+    [target.id, ids[2]],
   )
 })
 await test('Every public table has RLS and anon has no data grants', async () => {

@@ -20,7 +20,8 @@ enable_signup = true
 
 [auth.email]
 enable_signup = true
-enable_confirmations = true
+# Temporary: signup without email delivery; password recovery still requires email.
+enable_confirmations = false
 
 [storage]
 enabled = true

@@ -128,23 +128,19 @@ try {
         x.fillText('O', 35, 90)
         return c.toDataURL('image/png').split(',')[1]
       })
-      await page
-        .getByLabel('Logo do servidor', { exact: true })
-        .setInputFiles({
-          name: 'logo.png',
-          mimeType: 'image/png',
-          buffer: Buffer.from(png, 'base64'),
-        })
+      await page.getByLabel('Logo do servidor', { exact: true }).setInputFiles({
+        name: 'logo.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(png, 'base64'),
+      })
       await expect(dialog.locator('.server-logo-image')).toBeVisible()
       await page.getByRole('button', { name: 'Remover logo', exact: true }).click()
       await expect(dialog.locator('.server-logo-image')).toHaveCount(0)
-      await page
-        .getByLabel('Logo do servidor', { exact: true })
-        .setInputFiles({
-          name: 'logo.png',
-          mimeType: 'image/png',
-          buffer: Buffer.from(png, 'base64'),
-        })
+      await page.getByLabel('Logo do servidor', { exact: true }).setInputFiles({
+        name: 'logo.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(png, 'base64'),
+      })
       await expect(dialog.locator('.server-logo-image')).toBeVisible()
       await page
         .getByLabel('Descrição', { exact: true })
@@ -242,6 +238,13 @@ try {
     await expect(page.getByRole('button', { name: 'Ligar microfone', exact: true })).toBeVisible()
   }
   const page = pages[0]
+  const observer = await page.context().newPage()
+  await observer.goto(baseUrl)
+  await observer.getByTitle('Design da chamada · QA', { exact: true }).click()
+  const roster = observer.getByRole('list', { name: 'Na chamada de Sala de estar' })
+  await expect(roster.getByRole('listitem')).toHaveCount(2)
+  await expect(roster.getByText('Rafa · QA', { exact: true })).toBeVisible()
+  await expect(roster.getByText('Luna · QA', { exact: true })).toBeVisible()
   await page.locator('.participant').nth(1).waitFor()
   await pages[1].waitForFunction(
     () => document.querySelector('.featured-camera video')?.videoWidth > 0,
@@ -318,12 +321,49 @@ try {
   await page.getByLabel('Qualidade de transmissão').selectOption('720')
   await expect(page.getByLabel('Qualidade de transmissão')).toHaveValue('720')
   await page.screenshot({ path: 'test-results/call-screen-desktop.png' })
+  const cameraTile = await page.locator('.participant').first().boundingBox()
+  if (
+    !cameraTile ||
+    cameraTile.width > 222 ||
+    Math.abs(cameraTile.width / cameraTile.height - 16 / 9) > 0.05
+  )
+    throw Error('Camera tile must preserve its standard 16:9 dimensions')
+  await page.getByRole('button', { name: 'Destacar câmera de Rafa · QA', exact: true }).click()
+  await expect(page.locator('.featured-camera')).toHaveCount(1)
+  // The other viewer retains their own screen selection.
+  await expect(pages[1].locator('.featured-camera')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Destacar tela de Rafa · QA', exact: true }).click()
+  await expect(page.locator('.featured-camera')).toHaveCount(0)
+  await pages[1].evaluate(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1280
+      canvas.height = 720
+      const context = canvas.getContext('2d')
+      window.qaSecondScreenTimer = setInterval(() => {
+        context.fillStyle = '#5865f2'
+        context.fillRect(0, 0, 1280, 720)
+        context.fillStyle = 'white'
+        context.font = '40px sans-serif'
+        context.fillText('Segunda tela ' + Date.now(), 80, 200)
+      }, 70)
+      return canvas.captureStream(15)
+    }
+  })
+  await pages[1].getByRole('button', { name: 'Compartilhar tela', exact: true }).click()
+  await page.getByRole('button', { name: 'Destacar tela de Luna · QA', exact: true }).click()
+  await expect(page.locator('.streams .stream-label')).toContainText('Tela de Luna · QA')
+  await pages[1].getByRole('button', { name: 'Parar transmissão', exact: true }).click()
+  await expect(page.locator('.streams .stream-label')).toContainText('Tela de Rafa · QA')
+  await pages[1].evaluate(() => clearInterval(window.qaSecondScreenTimer))
   await page.getByRole('button', { name: 'Parar transmissão', exact: true }).click()
   await expect(page.getByLabel('Qualidade de transmissão')).toHaveCount(0)
   await expect(pages[1].getByLabel('Qualidade de transmissão')).toHaveCount(0)
   await expect(page.locator('.featured-camera')).toHaveCount(1)
   await page.evaluate(() => clearInterval(window.qaScreenTimer))
   await page.getByRole('button', { name: 'Sair da chamada', exact: true }).click()
+  await expect(roster.getByRole('listitem')).toHaveCount(1)
+  await expect(roster.getByText('Rafa · QA', { exact: true })).toHaveCount(0)
   console.log(
     'PASS: members toggle, preview camera cleanup, muted join, remote camera, mic toggle, fullscreen, drawers, mobile layout, screen video and contextual quality controls',
   )
@@ -334,18 +374,16 @@ try {
         console.log('UI ALERTS:', await page.locator('.toast').allTextContents())
         console.log(
           'CAMERA:',
-          await page
-            .locator('video')
-            .evaluateAll((videos) =>
-              videos.map((v) => ({
-                readyState: v.readyState,
-                videoWidth: v.videoWidth,
-                paused: v.paused,
-                tracks: v.srcObject
-                  ?.getTracks()
-                  .map((t) => ({ kind: t.kind, readyState: t.readyState, muted: t.muted })),
-              })),
-            ),
+          await page.locator('video').evaluateAll((videos) =>
+            videos.map((v) => ({
+              readyState: v.readyState,
+              videoWidth: v.videoWidth,
+              paused: v.paused,
+              tracks: v.srcObject
+                ?.getTracks()
+                .map((t) => ({ kind: t.kind, readyState: t.readyState, muted: t.muted })),
+            })),
+          ),
         )
         await page.screenshot({ path: 'test-results/call-failure.png' })
       }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowRight,
@@ -9,8 +9,10 @@ import {
   Orbit,
   ShieldCheck,
 } from 'lucide-react'
-import { check, configured, db, errorText, redirectUrl } from '../lib/supabase'
+import { check, configured, db, redirectUrl } from '../lib/supabase'
+import { authErrorText } from '../lib/auth-errors'
 import { Logo } from './ui'
+import { pendingInvitation } from '../lib/invitations'
 
 export function Auth({
   recovery = false,
@@ -20,14 +22,18 @@ export function Auth({
   recovered: () => void
 }) {
   const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login')
+  const [invited] = useState(() => Boolean(pendingInvitation()))
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [name, setName] = useState('')
   const [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
     [error, setError] = useState('')
+  const submitting = useRef(false)
   async function submit(e: FormEvent) {
     e.preventDefault()
+    if (submitting.current) return
+    submitting.current = true
     setBusy(true)
     setError('')
     setNotice('')
@@ -37,21 +43,26 @@ export function Auth({
         recovered()
       } else if (mode === 'login') check(await db().auth.signInWithPassword({ email, password }))
       else if (mode === 'signup') {
-        check(
+        const data = check(
           await db().auth.signUp({
             email,
             password,
             options: { data: { display_name: name }, emailRedirectTo: redirectUrl() },
           }),
         )
-        setNotice('Confira seu e-mail para confirmar o cadastro. Abra o link neste navegador.')
+        setNotice(
+          data.session
+            ? 'Conta criada! Entrando na Órbita…'
+            : 'Confira seu e-mail para confirmar o cadastro. Abra o link neste navegador.',
+        )
       } else {
         check(await db().auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() }))
         setNotice('Se o e-mail estiver cadastrado, você receberá um link. Abra-o neste navegador.')
       }
     } catch (err) {
-      setError(errorText(err))
+      setError(authErrorText(err))
     } finally {
+      submitting.current = false
       setBusy(false)
     }
   }
@@ -112,6 +123,11 @@ export function Auth({
           <Logo />
         </div>
         <div className="auth-form-wrap">
+          {invited && (
+            <p className="invite-auth-notice">
+              Você recebeu um convite para um servidor. Entre ou crie sua conta para continuar.
+            </p>
+          )}
           <span className="eyebrow">SEU PRÓXIMO PONTO DE ENCONTRO</span>
           <h2>
             {recovery

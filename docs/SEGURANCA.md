@@ -6,8 +6,8 @@ Os dados persistentes ficam no PostgreSQL/Storage. Sessões são gerenciadas por
 
 - `profiles`: diretório autenticado com nome, bio, status e avatar, sem e-mails; somente o próprio usuário edita.
 - `user_settings`: somente o proprietário lê/escreve.
-- `servers`/`server_members`: membros leem; criação adiciona proprietário por gatilho. Não há inserção direta de membros pelo cliente.
-- `channels`: membros autorizados leem; somente proprietário cria/altera. Canal privado exige cargo autorizado, salvo o proprietário.
+- `servers`/`server_members`: membros leem; criação adiciona proprietário por gatilho. O proprietário pode inserir um perfil existente em seu próprio servidor; membros comuns não podem adicionar a si ou a terceiros. O grant de inserção é restrito a `server_id,user_id`.
+- `channels`: membros autorizados leem; somente proprietário cria/altera. Canal privado exige cargo autorizado ou acesso individual em `channel_member_permissions`, salvo o proprietário.
 - `roles`, `member_roles`, `channel_permissions`: alterações reservadas ao proprietário; chaves estrangeiras compostas impedem mistura de cargos/canais de servidores diferentes.
 - `invitations`: proprietário cria/lê/revoga; resgate ocorre em transação com lock e verifica validade/limite.
 - `friendships`: solicitante cria; somente destinatário aceita; qualquer lado desfaz a relação.
@@ -15,7 +15,7 @@ Os dados persistentes ficam no PostgreSQL/Storage. Sessões são gerenciadas por
 - `messages`: contexto único canal/DM. Somente autor edita/exclui logicamente; grants por coluna impedem mudar autor, canal, data ou resposta após criação.
 - `attachments`/`message_reactions`: contexto derivado da mensagem no banco. Apenas autor anexa; membros autorizados reagem. Não há referência entre conversas.
 - `soundboard_sounds`: biblioteca privada por proprietário. Compartilhamento ocorre pela faixa de áudio publicada, não por liberar o arquivo a todos.
-- Storage: buckets privados, limite de tamanho, caminhos com ID do proprietário e UUID. Não há upsert. Nome original nunca vira caminho no bucket.
+- Storage: buckets privados, limite de tamanho, caminhos com ID do proprietário e UUID; logos usam ID do servidor/UUID, com escrita somente pelo proprietário e leitura pelos membros. Não há upsert. Nome original nunca vira caminho no bucket.
 
 Funções `SECURITY DEFINER` ficam em `private`, com search_path vazio, escopo de usuário nas operações chamadas pelo cliente e execução revogada por padrão. As únicas exceções sem usuário corrente são gatilhos internos de provisionamento Auth; eles usam o ID de `NEW`, não metadados para autorização. RPCs públicos são wrappers `SECURITY INVOKER` com EXECUTE apenas para `authenticated`.
 

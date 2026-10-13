@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Copy, Plus, Shield, Trash2 } from 'lucide-react'
+import { Shield, Trash2 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import type { Channel, Profile, Role, Server } from '../lib/types'
 import { IconButton, Modal } from './ui'
 import { ServerLogo } from './ServerLogo'
 import { upload, validateFile } from '../lib/files'
+import { ServerMembers } from './ServerMembers'
 
 export function ServerAdmin({
   server,
@@ -30,16 +31,12 @@ export function ServerAdmin({
       [],
     )
   const [roleName, setRoleName] = useState(''),
-    [invites, setInvites] = useState<
-      { id: string; code: string; uses: number; max_uses: number; expires_at: string }[]
-    >([]),
     [busy, setBusy] = useState(false)
   async function load() {
-    const [r, m, p, i, a] = await Promise.all([
+    const [r, m, p, a] = await Promise.all([
       db().from('roles').select('*').eq('server_id', server.id),
       db().from('member_roles').select('*').eq('server_id', server.id),
       db().from('channel_permissions').select('*').eq('server_id', server.id),
-      db().from('invitations').select('*').eq('server_id', server.id),
       db()
         .from('channel_member_permissions')
         .select('channel_id,user_id')
@@ -48,7 +45,6 @@ export function ServerAdmin({
     setRoles(check(r) as Role[])
     setAssignments(check(m))
     setPermissions(check(p))
-    setInvites(check(i))
     setMemberAccess(check(a))
   }
   useEffect(() => {
@@ -175,55 +171,7 @@ export function ServerAdmin({
             </button>
           </form>
         </section>
-        <section>
-          <h3>Convites</h3>
-          <p className="muted">Os convites valem por 7 dias e permitem 25 entradas.</p>
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                check(
-                  await db()
-                    .from('invitations')
-                    .insert({ server_id: server.id, created_by: server.owner_id }),
-                )
-              })
-            }
-          >
-            <Plus size={16} />
-            Gerar convite
-          </button>
-          {invites.map((inv) => (
-            <div className="admin-row" key={inv.id}>
-              <code>{inv.code}</code>
-              <small>
-                {inv.uses}/{inv.max_uses}
-              </small>
-              <IconButton
-                label="Copiar convite"
-                onClick={() =>
-                  void run(async () => {
-                    await navigator.clipboard.writeText(inv.code)
-                  })
-                }
-              >
-                <Copy size={16} />
-              </IconButton>
-              <IconButton
-                label="Revogar convite"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    check(await db().from('invitations').delete().eq('id', inv.id))
-                  })
-                }
-              >
-                <Trash2 size={16} />
-              </IconButton>
-            </div>
-          ))}
-        </section>
+        <ServerMembers server={server} people={people} refresh={refresh} report={report} />
         <section>
           <h3>
             <Shield size={17} />
@@ -433,13 +381,11 @@ export function ServerAdmin({
                               void run(async () => {
                                 if (enabled)
                                   check(
-                                    await db()
-                                      .from('channel_member_permissions')
-                                      .insert({
-                                        server_id: server.id,
-                                        channel_id: channel.id,
-                                        user_id: person.id,
-                                      }),
+                                    await db().from('channel_member_permissions').insert({
+                                      server_id: server.id,
+                                      channel_id: channel.id,
+                                      user_id: person.id,
+                                    }),
                                   )
                                 else
                                   check(

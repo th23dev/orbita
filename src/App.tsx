@@ -12,8 +12,11 @@ import {
   Orbit,
   Plus,
   Settings as SettingsIcon,
-  Shield,
   Users,
+  UserPlus,
+  MicOff,
+  Video,
+  MonitorUp,
   X,
 } from 'lucide-react'
 import { Auth } from './components/Auth'
@@ -22,10 +25,19 @@ import { Friends } from './components/Friends'
 import { Settings } from './components/Settings'
 import { ServerAdmin } from './components/ServerAdmin'
 import { ServerLogo } from './components/ServerLogo'
+import { ServerMembers } from './components/ServerMembers'
+import {
+  clearInvitation,
+  invitationCode,
+  pendingInvitation,
+  rememberInvitation,
+} from './lib/invitations'
 import { Avatar, Empty, IconButton, Logo, Modal } from './components/ui'
 import { check, db, errorText, supabase } from './lib/supabase'
 import { useWorkspace } from './hooks/useWorkspace'
 import { usePresence } from './hooks/usePresence'
+import { useVoicePresence } from './hooks/useVoicePresence'
+import type { VoicePresence } from './hooks/useVoicePresence'
 import type { Channel, Space } from './lib/types'
 
 const Voice = lazy(() => import('./components/Voice').then((module) => ({ default: module.Voice })))
@@ -37,6 +49,7 @@ function Workspace({ session }: { session: Session }) {
     [selection, setSelection] = useState<{ kind: 'channel' | 'dm'; id: string } | null>(null)
   const [mobile, setMobile] = useState(false),
     [showMembers, setShowMembers] = useState(() => {
+      if (window.matchMedia('(max-width: 1000px)').matches) return false
       try {
         return localStorage.getItem('orbita:members-sidebar') !== 'hidden'
       } catch {
@@ -49,6 +62,13 @@ function Workspace({ session }: { session: Session }) {
     [busy, setBusy] = useState(false)
   const report = useCallback((message: string) => setError(message), [])
   const data = useWorkspace(session.user.id, report)
+  const [callPresence, setCallPresence] = useState<VoicePresence | null>(null)
+  const onPresenceChange = useCallback((next: VoicePresence | null) => {
+    setCallPresence((previous) =>
+      JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+    )
+  }, [])
+  const voiceRosters = useVoicePresence(data.channels, session.user.id, callPresence)
   const currentServer = data.servers.find((s) => s.id === serverId)
   const serverChannels = data.channels.filter((c) => c.server_id === serverId)
   const selectedChannel =
@@ -73,6 +93,30 @@ function Workspace({ session }: { session: Session }) {
     .sort((a, b) => Number(online.includes(b.id)) - Number(online.includes(a.id)))
   const owner = currentServer?.owner_id === session.user.id
   const leave = useCallback(() => setVoice(null), [])
+  useEffect(() => {
+    const openInvite = () => {
+      const code = pendingInvitation()
+      if (code) {
+        setName(code)
+        setModal('join')
+        setMobile(false)
+        setShowMembers(false)
+      }
+    }
+    openInvite()
+    window.addEventListener('hashchange', openInvite)
+    return () => window.removeEventListener('hashchange', openInvite)
+  }, [])
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !modal) {
+        setMobile(false)
+        setShowMembers(false)
+      }
+    }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [modal])
   useEffect(() => {
     try {
       localStorage.setItem('orbita:members-sidebar', showMembers ? 'visible' : 'hidden')
@@ -129,10 +173,14 @@ function Workspace({ session }: { session: Session }) {
         setSelection(null)
       }
       if (modal === 'join') {
-        const id = check(await db().rpc('join_server', { invite_code: name.trim() }))
+        const code = invitationCode(name)
+        if (!code) throw new Error('Cole um link de convite da Órbita ou um código válido.')
+        const id = check(await db().rpc('join_server', { invite_code: code }))
         await data.refresh()
+        clearInvitation()
         setServerId(id)
         setSelection(null)
+        window.history.replaceState(null, '', '#/')
       }
       if (modal === 'channel') {
         const channel = check(
@@ -146,6 +194,7 @@ function Workspace({ session }: { session: Session }) {
         select('channel', channel.id)
       }
       setModal(null)
+      setMobile(false)
       setName('')
     } catch (e) {
       report(errorText(e))
@@ -156,10 +205,29 @@ function Workspace({ session }: { session: Session }) {
   function openModal(value: string) {
     setName('')
     setModal(value)
+    setMobile(false)
+  }
+  function closeJoin() {
+    clearInvitation()
+    setModal(null)
   }
   const voiceVisible = Boolean(voice && selectedChannel?.id === voice.id)
   return (
     <div className={`app-shell ${mobile ? 'nav-open' : ''} ${!showMembers ? 'hide-members' : ''}`}>
+      {mobile && (
+        <button
+          className="navigation-backdrop"
+          aria-label="Fechar menu de navegação"
+          onClick={() => setMobile(false)}
+        />
+      )}
+      {currentServer && showMembers && (
+        <button
+          className="members-backdrop"
+          aria-label="Fechar painel de membros"
+          onClick={() => setShowMembers(false)}
+        />
+      )}
       <aside className="server-rail" aria-label="Servidores">
         <button className={`rail-home ${!serverId ? 'active' : ''}`} title="Início" onClick={home}>
           <Orbit size={29} />
@@ -191,7 +259,7 @@ function Workspace({ session }: { session: Session }) {
               <strong>{currentServer.name}</strong>
               {owner && (
                 <IconButton label="Gerenciar servidor" onClick={() => setModal('admin')}>
-                  <ChevronDown size={18} />
+                  <SettingsIcon size={18} />
                 </IconButton>
               )}
             </>
@@ -207,6 +275,12 @@ function Workspace({ session }: { session: Session }) {
           </IconButton>
         </header>
         <div className="sidebar-content">
+          {currentServer && owner && (
+            <button className="sidebar-invite" onClick={() => openModal('invite')}>
+              <UserPlus size={18} />
+              <span>Adicionar membros</span>
+            </button>
+          )}
           <button
             className={`sidebar-link ${!serverId && !selection ? 'active' : ''}`}
             onClick={home}
@@ -243,15 +317,54 @@ function Workspace({ session }: { session: Session }) {
                   {serverChannels
                     .filter((c) => c.kind === type)
                     .map((ch) => (
-                      <button
-                        key={ch.id}
-                        className={`sidebar-link ${selection?.id === ch.id ? 'active' : ''}`}
-                        onClick={() => select('channel', ch.id)}
-                      >
-                        {type === 'text' ? <Hash size={19} /> : <Headphones size={18} />}
-                        <span>{ch.name}</span>
-                        {ch.is_private && <LockKeyhole size={12} />}
-                      </button>
+                      <div className="sidebar-channel" key={ch.id}>
+                        <button
+                          className={`sidebar-link ${selection?.id === ch.id ? 'active' : ''}`}
+                          onClick={() => select('channel', ch.id)}
+                        >
+                          {type === 'text' ? <Hash size={19} /> : <Headphones size={18} />}
+                          <span>{ch.name}</span>
+                          {ch.is_private && <LockKeyhole size={12} />}
+                          {!!voiceRosters[ch.id]?.length && (
+                            <small
+                              className="voice-channel-count"
+                              aria-label={`${voiceRosters[ch.id].length} na chamada`}
+                            >
+                              {voiceRosters[ch.id].length}
+                            </small>
+                          )}
+                        </button>
+                        {type === 'voice' && !!voiceRosters[ch.id]?.length && (
+                          <ul className="voice-roster" aria-label={`Na chamada de ${ch.name}`}>
+                            {voiceRosters[ch.id].map((member) => {
+                              const person = data.profiles.find(
+                                (profile) => profile.id === member.userId,
+                              )
+                              return (
+                                <li key={member.userId}>
+                                  <button
+                                    className={member.speaking ? 'speaking' : ''}
+                                    onClick={() => select('channel', ch.id)}
+                                    title={`${person?.display_name || 'Membro'} · ${member.muted ? 'Microfone desligado' : 'Na chamada'}`}
+                                  >
+                                    <Avatar profile={person} small />
+                                    <span>{person?.display_name || 'Membro'}</span>
+                                    {member.screen && (
+                                      <MonitorUp size={13} aria-label="Transmitindo tela" />
+                                    )}
+                                    {member.camera && (
+                                      <Video size={13} aria-label="Câmera ligada" />
+                                    )}
+                                    {member.muted && (
+                                      <MicOff size={13} aria-label="Microfone desligado" />
+                                    )}
+                                  </button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                      </div>
                     ))}
                 </div>
               ))}
@@ -363,7 +476,7 @@ function Workspace({ session }: { session: Session }) {
           <div className="header-actions">
             {owner && (
               <IconButton label="Convites e permissões" onClick={() => setModal('admin')}>
-                <Shield size={19} />
+                <SettingsIcon size={19} />
               </IconButton>
             )}
             {currentServer && (
@@ -445,6 +558,7 @@ function Workspace({ session }: { session: Session }) {
                     initialVolume={data.settings.soundboard_volume}
                     report={report}
                     leave={leave}
+                    onPresenceChange={onPresenceChange}
                   />
                 </Suspense>
               </div>
@@ -494,6 +608,49 @@ function Workspace({ session }: { session: Session }) {
           )}
         </div>
       </main>
+      <nav className="mobile-dock" aria-label="Navegação principal no celular">
+        <button
+          className={mobile || (serverId && !voiceVisible) ? 'active' : ''}
+          aria-label="Servidores e canais"
+          aria-expanded={mobile}
+          onClick={() => {
+            setMobile(!mobile)
+            setShowMembers(false)
+          }}
+        >
+          <Orbit size={22} />
+          <span>Servidores</span>
+        </button>
+        <button
+          className={!serverId && !mobile ? 'active' : ''}
+          onClick={() => {
+            home()
+            setShowMembers(false)
+          }}
+        >
+          <Users size={22} />
+          <span>Amigos</span>
+        </button>
+        <button
+          className={voiceVisible && !mobile ? 'active' : ''}
+          disabled={!voice}
+          onClick={() => {
+            if (voice) {
+              setServerId(voice.server_id)
+              select('channel', voice.id)
+              setShowMembers(false)
+            }
+          }}
+        >
+          <Headphones size={22} />
+          {voice && <i />}
+          <span>Chamada</span>
+        </button>
+        <button disabled={!data.me} onClick={() => openModal('settings')}>
+          <SettingsIcon size={22} />
+          <span>Perfil</span>
+        </button>
+      </nav>
       {error && (
         <div className="toast" role="alert">
           <span>{error}</span>
@@ -521,6 +678,16 @@ function Workspace({ session }: { session: Session }) {
           report={report}
         />
       )}
+      {modal === 'invite' && currentServer && owner && (
+        <Modal title={`Adicionar membros a ${currentServer.name}`} close={() => setModal(null)}>
+          <ServerMembers
+            server={currentServer}
+            people={people}
+            refresh={data.refresh}
+            report={report}
+          />
+        </Modal>
+      )}
       {['server', 'join', 'channel'].includes(modal || '') && (
         <Modal
           title={
@@ -530,7 +697,7 @@ function Workspace({ session }: { session: Session }) {
                 ? 'Entre em uma comunidade'
                 : 'Um novo canal, novas conversas'
           }
-          close={() => setModal(null)}
+          close={modal === 'join' ? closeJoin : () => setModal(null)}
         >
           <form
             className="create-form"
@@ -543,22 +710,22 @@ function Workspace({ session }: { session: Session }) {
               {modal === 'server'
                 ? 'Dê um nome ao espaço que vai reunir suas pessoas.'
                 : modal === 'join'
-                  ? 'Cole o código de convite compartilhado com você.'
+                  ? 'Cole o link ou código compartilhado com você e confirme para entrar no servidor.'
                   : 'Organize as conversas do seu servidor.'}
             </p>
             <label>
-              {modal === 'join' ? 'Código de convite' : 'Nome'}
+              {modal === 'join' ? 'Link ou código de convite' : 'Nome'}
               <input
                 autoFocus
                 required
                 value={name}
-                maxLength={modal === 'join' ? 36 : 64}
+                maxLength={modal === 'join' ? 2048 : 64}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={
                   modal === 'server'
                     ? 'Ex.: Nossa galáxia'
                     : modal === 'join'
-                      ? 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+                      ? 'https://th23dev.github.io/orbita/#/invite/…'
                       : 'Ex.: ideias-e-projetos'
                 }
               />
@@ -588,6 +755,7 @@ export default function App() {
     [recovery, setRecovery] = useState(false),
     [error, setError] = useState('')
   useEffect(() => {
+    rememberInvitation(window.location.hash)
     if (!supabase) return
     let active = true
     supabase.auth

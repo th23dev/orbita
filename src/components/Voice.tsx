@@ -28,6 +28,8 @@ import { addSound, deleteSound } from '../lib/files'
 import { Soundboard } from '../lib/soundboard'
 import type { Channel, Profile, Sound } from '../lib/types'
 import { Avatar, IconButton } from './ui'
+import { featuredStream } from '../lib/call-layout'
+import type { VoicePresence } from '../hooks/useVoicePresence'
 
 function MediaTrack({
   track,
@@ -70,6 +72,7 @@ export function Voice({
   initialVolume,
   report,
   leave,
+  onPresenceChange,
 }: {
   channel: Channel
   me: Profile
@@ -77,6 +80,7 @@ export function Voice({
   initialVolume: number
   report: (s: string) => void
   leave: () => void
+  onPresenceChange: (presence: VoicePresence | null) => void
 }) {
   const [room] = useState(
     () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
@@ -95,6 +99,8 @@ export function Voice({
   const [previewCamera, setPreviewCamera] = useState<LocalVideoTrack | null>(null)
   const [cameraBusy, setCameraBusy] = useState(false)
   const [qualityBusy, setQualityBusy] = useState(false)
+  const [selectedStream, setSelectedStream] = useState<string | null>(null)
+  const [showParticipants, setShowParticipants] = useState(true)
   const previewCameraRef = useRef<LocalVideoTrack | null>(null)
   const panel = useRef<HTMLElement>(null)
   const soundboardToggle = useRef<HTMLButtonElement>(null)
@@ -132,7 +138,24 @@ export function Voice({
   useEffect(() => {
     mounted.current = true
     const update = () => setVersion((v) => v + 1)
+    const announce = () => {
+      const connected =
+        room.state === ConnectionState.Connected || room.state === ConnectionState.Reconnecting
+      const local = room.localParticipant
+      onPresenceChange(
+        connected
+          ? {
+              channelId: channel.id,
+              muted: !local.isMicrophoneEnabled,
+              speaking: local.isSpeaking,
+              camera: local.isCameraEnabled,
+              screen: local.isScreenShareEnabled,
+            }
+          : null,
+      )
+    }
     room.on(RoomEvent.ConnectionStateChanged, setState)
+    room.on(RoomEvent.ConnectionStateChanged, announce)
     for (const event of [
       RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected,
@@ -144,8 +167,10 @@ export function Voice({
       RoomEvent.LocalTrackPublished,
       RoomEvent.LocalTrackUnpublished,
       RoomEvent.AudioPlaybackStatusChanged,
-    ])
+    ]) {
       room.on(event, update)
+      room.on(event, announce)
+    }
     void loadSounds().catch((e) => report(errorText(e)))
     const sub = db()
       .channel(`sounds:${me.id}`)
@@ -164,6 +189,7 @@ export function Voice({
       .subscribe()
     return () => {
       mounted.current = false
+      onPresenceChange(null)
       previewCameraRef.current?.stop()
       previewCameraRef.current = null
       room.removeAllListeners()
@@ -171,7 +197,7 @@ export function Voice({
       void room.disconnect()
       void db().removeChannel(sub)
     }
-  }, [room, me.id, report])
+  }, [room, me.id, report, onPresenceChange, channel.id])
   // Recheck server authorization while connected. Tokens alone do not evict existing media sessions.
   useEffect(() => {
     if (!joined) return
@@ -307,7 +333,12 @@ export function Voice({
           (pub.source === Track.Source.ScreenShare ||
             (!p.isLocal && pub.kind === Track.Kind.Audio)),
       )
-      .map((pub) => ({ track: pub.track!, name: p.name || p.identity, sid: pub.trackSid })),
+      .map((pub) => ({
+        track: pub.track!,
+        name: p.name || p.identity,
+        sid: pub.trackSid,
+        local: p.isLocal,
+      })),
   )
   const screens = tracks.filter(({ track }) => track.kind === Track.Kind.Video)
   const cameras = people.flatMap((person) => {
@@ -323,7 +354,16 @@ export function Voice({
         ]
       : []
   })
-  const featuredCamera = screens.length === 0 && cameras.length === 1 ? cameras[0] : null
+  const streams = [
+    ...screens.map((stream) => ({ ...stream, kind: 'screen' as const })),
+    ...cameras.map((stream) => ({ ...stream, kind: 'camera' as const })),
+  ]
+  const featured = featuredStream(streams, selectedStream)
+  const participantsHidden = Boolean(featured && !showParticipants)
+  const streamKey = streams.map((stream) => stream.sid).join(',')
+  useEffect(() => {
+    if (selectedStream && !streamKey.split(',').includes(selectedStream)) setSelectedStream(null)
+  }, [streamKey, selectedStream])
   const connected = state === ConnectionState.Connected
   const status = joining
     ? 'Conectando…'
@@ -355,12 +395,26 @@ export function Voice({
           </div>
         </div>
         <div className="call-header-actions">
-          {joined && (
-            <span className="call-count">
-              <Users size={15} />
+          {joined && featured ? (
+            <button
+              className="call-count participants-toggle"
+              onClick={() => setShowParticipants((visible) => !visible)}
+              aria-label={participantsHidden ? 'Mostrar participantes' : 'Ocultar participantes'}
+              title={participantsHidden ? 'Mostrar participantes' : 'Ocultar participantes'}
+              aria-expanded={!participantsHidden}
+              aria-controls="call-participants"
+            >
+              <Users size={18} />
               {people.length}
-              <span className="sr-only"> participantes</span>
-            </span>
+            </button>
+          ) : (
+            joined && (
+              <span className="call-count">
+                <Users size={15} />
+                {people.length}
+                <span className="sr-only"> participantes</span>
+              </span>
+            )
           )}
           <IconButton
             label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
@@ -375,7 +429,9 @@ export function Voice({
           </IconButton>
         </div>
       </header>
-      <div className={`call-stage ${screens.length || featuredCamera ? 'has-screen' : ''}`}>
+      <div
+        className={`call-stage ${featured ? 'has-screen' : ''} ${participantsHidden ? 'participants-hidden' : ''}`}
+      >
         {!joined ? (
           <div className="call-lobby">
             <div className="call-preview">
@@ -430,33 +486,58 @@ export function Voice({
           </div>
         ) : (
           <>
-            {featuredCamera && (
-              <div className="streams featured-camera">
+            {streams.length > 1 && (
+              <div className="stream-picker" aria-label="Transmissões ativas">
+                {streams.map((stream) => (
+                  <button
+                    key={stream.sid}
+                    type="button"
+                    aria-pressed={featured?.sid === stream.sid}
+                    aria-label={`Destacar ${stream.kind === 'screen' ? 'tela' : 'câmera'} de ${stream.name}`}
+                    onClick={() => setSelectedStream(stream.sid)}
+                  >
+                    {stream.kind === 'screen' ? <MonitorUp size={17} /> : <Video size={17} />}
+                    <span>
+                      <small>{stream.kind === 'screen' ? 'Tela' : 'Câmera'}</small>
+                      {stream.name}
+                    </span>
+                  </button>
+                ))}
+                {selectedStream && (
+                  <button
+                    type="button"
+                    className="reset-focus"
+                    onClick={() => setSelectedStream(null)}
+                  >
+                    Destaque automático
+                  </button>
+                )}
+              </div>
+            )}
+            {featured && (
+              <div className={`streams ${featured.kind === 'camera' ? 'featured-camera' : ''}`}>
                 <div className="screen-card">
                   <div className="stream-label">
-                    <Video size={14} />
-                    <span>Câmera de {featuredCamera.name}</span>
+                    {featured.kind === 'camera' ? <Video size={14} /> : <MonitorUp size={14} />}
+                    <span>
+                      {featured.kind === 'camera' ? 'Câmera' : 'Tela'} de {featured.name}
+                    </span>
                     <b>AO VIVO</b>
                   </div>
-                  <MediaTrack track={featuredCamera.track} camera mirror={featuredCamera.local} />
+                  <MediaTrack
+                    key={featured.sid}
+                    track={featured.track}
+                    camera={featured.kind === 'camera'}
+                    mirror={featured.kind === 'camera' && featured.local}
+                  />
                 </div>
               </div>
             )}
-            {screens.length > 0 && (
-              <div className="streams">
-                {screens.map(({ track, name, sid }) => (
-                  <div className="screen-card" key={sid}>
-                    <div className="stream-label">
-                      <MonitorUp size={14} />
-                      <span>Tela de {name}</span>
-                      <b>AO VIVO</b>
-                    </div>
-                    <MediaTrack track={track} />
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className={`participants ${people.length === 1 ? 'solo' : ''}`}>
+            <div
+              id="call-participants"
+              className={`participants ${people.length === 1 ? 'solo' : ''}`}
+              hidden={participantsHidden}
+            >
               {people.map((person) => {
                 const profile = person.isLocal ? me : profiles.find((p) => p.id === person.identity)
                 const name = person.name || profile?.display_name || 'Participante'
@@ -472,7 +553,7 @@ export function Voice({
                         Falando
                       </span>
                     )}
-                    {camera?.track && !camera.isMuted && camera.trackSid !== featuredCamera?.sid ? (
+                    {camera?.track && !camera.isMuted && camera.trackSid !== featured?.sid ? (
                       <MediaTrack track={camera.track} camera mirror={person.isLocal} />
                     ) : (
                       <div className="participant-avatar">
@@ -513,7 +594,7 @@ export function Voice({
                 )
               })}
             </div>
-            {people.length === 1 && (
+            {people.length === 1 && !featured && (
               <p className="call-alone">
                 Você chegou primeiro. A sala está aberta para a conversa.
               </p>
