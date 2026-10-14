@@ -80,6 +80,7 @@ export function Chat({
   userId,
   profiles,
   mentionMembers,
+  onRead,
   report,
   openProfile,
 }: {
@@ -87,6 +88,7 @@ export function Chat({
   userId: string
   profiles: Profile[]
   mentionMembers: Profile[]
+  onRead: (channelId: string, timestamp: string) => void
   report: (s: string) => void
   openProfile: (profile: Profile) => void
 }) {
@@ -118,6 +120,21 @@ export function Chat({
     scroller = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true)
   const profile = (id: string) => profiles.find((p) => p.id === id)
+  const markVisibleMessages = () => {
+    const latest = chat.messages.at(-1)
+    if (space.kind === 'channel' && !chat.loading && !context && results === null &&
+      nearBottom.current && !document.hidden && document.hasFocus() && latest)
+      onRead(space.id, latest.created_at)
+  }
+  useEffect(() => {
+    markVisibleMessages()
+    window.addEventListener('focus', markVisibleMessages)
+    document.addEventListener('visibilitychange', markVisibleMessages)
+    return () => {
+      window.removeEventListener('focus', markVisibleMessages)
+      document.removeEventListener('visibilitychange', markVisibleMessages)
+    }
+  }, [chat.messages, chat.loading, context, results, space.id, space.kind, onRead])
   const composer = useRef<HTMLTextAreaElement>(null)
   const [cursor, setCursor] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -421,6 +438,7 @@ export function Chat({
         onScroll={() => {
           const s = scroller.current
           if (s) nearBottom.current = s.scrollHeight - s.scrollTop - s.clientHeight < 130
+          markVisibleMessages()
         }}
       >
         {results === null && !context && (

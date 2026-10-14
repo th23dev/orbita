@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { Camera, LogOut, Moon, Sun, Bell } from 'lucide-react'
+import { Camera, LogOut, Moon, Sun } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { upload, validateFile } from '../lib/files'
 import type { Profile, Settings as Preferences } from '../lib/types'
 import { Avatar, Modal } from './ui'
-import { notificationWorker } from '../lib/notifications'
 
 export function Settings({
   me,
@@ -24,7 +23,6 @@ export function Settings({
     [bio, setBio] = useState(me.bio),
     [status, setStatus] = useState(me.status),
     [busy, setBusy] = useState(false)
-  const [notificationNote, setNotificationNote] = useState('')
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     try {
@@ -143,38 +141,6 @@ export function Settings({
             {settings.theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
           </button>
         </div>
-        <div className="preference-row">
-          <span>
-            <Bell size={18} />
-            Notificações
-          </span>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                const enabled = !settings.notifications
-                setNotificationNote('')
-                if (enabled) {
-                  const permission = 'Notification' in window ? await Notification.requestPermission() : 'denied'
-                  if (permission !== 'granted')
-                    setNotificationNote('Avisos dentro do app ativados. Para receber avisos em segundo plano, permita notificações nas configurações do navegador.')
-                  else await notificationWorker().catch(() => {})
-                }
-                check(
-                  await db()
-                    .from('user_settings')
-                    .update({ notifications: enabled })
-                    .eq('user_id', me.id),
-                )
-              })
-            }
-          >
-            {settings.notifications ? 'Desativar' : 'Ativar'}
-          </button>
-        </div>
-        <p className="muted" role="status">{notificationNote || 'Com a Órbita aberta, receba avisos de novas mensagens, inclusive em segundo plano.'}</p>
         <button className="primary" disabled={busy}>
           {busy ? 'Salvando…' : 'Salvar perfil'}
         </button>

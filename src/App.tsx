@@ -10,6 +10,7 @@ import {
   LogOut,
   Mail,
   Menu,
+  PanelLeft,
   MessageCircle,
   Orbit,
   Plus,
@@ -26,7 +27,7 @@ import { Chat } from './components/Chat'
 import { Friends } from './components/Friends'
 import { Settings } from './components/Settings'
 import { ServerAdmin } from './components/ServerAdmin'
-import { ServerLogo } from './components/ServerLogo'
+import { ServerRailItem } from './components/ServerRailItem'
 import { ServerMembers } from './components/ServerMembers'
 import { ChannelSettings } from './components/ChannelSettings'
 import { FriendPicker } from './components/FriendPicker'
@@ -44,7 +45,7 @@ import { Avatar, Empty, IconButton, Logo, Modal } from './components/ui'
 import { check, db, errorText, supabase } from './lib/supabase'
 import { useWorkspace } from './hooks/useWorkspace'
 import { usePresence } from './hooks/usePresence'
-import { useNotifications } from './hooks/useNotifications'
+import { useUnreadMessages } from './hooks/useUnreadMessages'
 import { useVoicePresence } from './hooks/useVoicePresence'
 import type { VoicePresence } from './hooks/useVoicePresence'
 import type { Channel, Profile, Space } from './lib/types'
@@ -82,6 +83,14 @@ function Workspace({ session }: { session: Session }) {
     [name, setName] = useState(''),
     [kind, setKind] = useState('text'),
     [busy, setBusy] = useState(false)
+  const [showSidebar, setShowSidebar] = useState(() => {
+    try { return localStorage.getItem('orbita:channel-sidebar') !== 'hidden' }
+    catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('orbita:channel-sidebar', showSidebar ? 'visible' : 'hidden') }
+    catch { /* Optional preference. */ }
+  }, [showSidebar])
   const report = useCallback((message: string) => setError(message), [])
   const data = useWorkspace(session.user.id, report)
   const [callPresence, setCallPresence] = useState<VoicePresence | null>(null)
@@ -134,28 +143,7 @@ function Workspace({ session }: { session: Session }) {
           }
         : null
   const online = usePresence(currentServer ? `server:${currentServer.id}` : null, data.me)
-  const notifications = useNotifications({
-    userId: session.user.id,
-    enabled: data.settings.notifications,
-    space,
-    profiles: data.profiles,
-    channels: data.channels,
-    report,
-    open: (target) => {
-      if (target.kind === 'channel') {
-        const channel = data.channels.find((item) => item.id === target.id)
-        if (!channel) return
-        setServerId(channel.server_id)
-        select('channel', channel.id)
-      } else {
-        const conversation = data.conversations.find((item) => item.id === target.id)
-        if (!conversation) return
-        setServerId('')
-        select('dm', conversation.canonical_id || conversation.id)
-      }
-      setModal(null)
-    },
-  })
+  const unread = useUnreadMessages(session.user.id, data.channels)
   const memberIds = data.members.filter((m) => m.server_id === serverId).map((m) => m.user_id)
   const people = data.profiles
     .filter((p) => memberIds.includes(p.id))
@@ -312,7 +300,7 @@ function Workspace({ session }: { session: Session }) {
   }
   const voiceVisible = Boolean(voice && selectedChannel?.id === voice.id)
   return (
-    <div className={`app-shell ${mobile ? 'nav-open' : ''} ${!showMembers ? 'hide-members' : ''}`}>
+    <div className={`app-shell ${mobile ? 'nav-open' : ''} ${!showMembers ? 'hide-members' : ''} ${!showSidebar ? 'hide-channel-sidebar' : ''}`}>
       {mobile && (
         <button
           className="navigation-backdrop"
@@ -333,15 +321,17 @@ function Workspace({ session }: { session: Session }) {
         </button>
         <div className="rail-divider" />
         {data.servers.map((s, i) => (
-          <button
+          <ServerRailItem
             key={s.id}
-            className={`server-icon color-${i % 4} ${serverId === s.id ? 'active' : ''}`}
-            title={s.name}
-            aria-label={s.name}
-            onClick={() => chooseServer(s.id)}
-          >
-            <ServerLogo server={s} />
-          </button>
+            server={s}
+            unreadCount={unread.servers[s.id] || 0}
+            index={i}
+            active={serverId === s.id}
+            channels={data.channels}
+            rosters={voiceRosters}
+            profiles={data.profiles}
+            onSelect={() => chooseServer(s.id)}
+          />
         ))}
         <button className="rail-add" title="Criar servidor" onClick={() => openModal('server')}>
           <Plus size={24} />
@@ -350,9 +340,20 @@ function Workspace({ session }: { session: Session }) {
           <ArrowUpRight size={22} />
         </button>
         <span className="rail-spacer" />
-        <span className="rail-bottom">O.</span>
+        <IconButton
+          label={showSidebar || mobile ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
+          className="icon-button rail-sidebar-toggle"
+          aria-expanded={showSidebar || mobile}
+          aria-controls="channel-sidebar"
+          onClick={() => {
+            if (mobile) setMobile(false)
+            else setShowSidebar((visible) => !visible)
+          }}
+        >
+          <PanelLeft size={23} strokeWidth={1.7} aria-hidden="true" />
+        </IconButton>
       </aside>
-      <aside className="channel-sidebar">
+      <aside className="channel-sidebar" id="channel-sidebar">
         <header className="sidebar-header">
           {currentServer ? (
             <>
@@ -682,6 +683,7 @@ function Workspace({ session }: { session: Session }) {
                 key={`${space.kind}:${space.id}`}
                 space={space}
                 userId={session.user.id}
+                onRead={unread.markRead}
                 profiles={data.profiles}
                 mentionMembers={data.profiles.filter((profile) =>
                   data.members.some((member) => member.server_id === selectedChannel?.server_id && member.user_id === profile.id),
@@ -855,20 +857,6 @@ function Workspace({ session }: { session: Session }) {
           </IconButton>
         </div>
       )}
-      <div className="message-notifications" aria-label="Notificações de mensagens" aria-live="polite">
-        {notifications.notices.map((notice) => (
-          <div className="message-notification" key={notice.messageId}>
-            <button type="button" onClick={() => {
-              notifications.open(notice)
-              notifications.dismiss(notice.messageId)
-            }}>
-              <MessageCircle size={20} />
-              <span><strong>{notice.title}</strong><small>Abrir conversa</small></span>
-            </button>
-            <IconButton label="Dispensar notificação" onClick={() => notifications.dismiss(notice.messageId)}><X size={16} /></IconButton>
-          </div>
-        ))}
-      </div>
       {modal === 'settings' && data.me && (
         <Settings
           me={data.me}
