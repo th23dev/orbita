@@ -93,7 +93,7 @@ export function Voice({
 }) {
   const dialogs = useDialogs()
   const [room] = useState(
-    () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false }),
+    () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
   )
   const [state, setState] = useState<ConnectionState>(ConnectionState.Disconnected),
     [joining, setJoining] = useState(false),
@@ -112,6 +112,9 @@ export function Voice({
   const [selectedStream, setSelectedStream] = useState<string | null>(null)
   const [showParticipants, setShowParticipants] = useState(true)
   const [playingSound, setPlayingSound] = useState<string | null>(null)
+  const [activeSound, setActiveSound] = useState<string | null>(null)
+  const [soundError, setSoundError] = useState('')
+  const soundSequence = useRef(0)
   const hadJoined = useRef(false)
   const connecting = useRef(false)
   const microphoneWanted = useRef(true)
@@ -471,7 +474,15 @@ export function Voice({
         : joined
           ? 'Conexão encerrada'
           : 'Canal de voz'
-  const toggleSoundboard = () => setSoundboardOpen((open) => !open)
+  const toggleSoundboard = () => {
+    if (!soundboardOpen) {
+      setSoundError('')
+      board.current ??= new Soundboard(joined ? room : undefined)
+      // Negotiate the dedicated audio track before the user selects a short clip.
+      void board.current.prepare().catch((error) => setSoundError(errorText(error)))
+    }
+    setSoundboardOpen((open) => !open)
+  }
   return (
     <section
       className={`voice-panel ${soundboardOpen ? 'soundboard-open' : ''}`}
@@ -952,6 +963,7 @@ export function Voice({
           </button>
         </div>
         {uploadProgress !== null && <progress value={uploadProgress} max={100} />}
+        {soundError && <p role="alert" className="sound-empty">{soundError}</p>}
         <div className="sound-grid">
           {sounds.map((sound, i) => (
             <div className="sound-tile" key={sound.id}>
@@ -962,12 +974,20 @@ export function Voice({
                 onClick={() =>
                   void run(async () => {
                     setPlayingSound(sound.id)
+                    setSoundError('')
+                    setActiveSound(null)
+                    const sequence = ++soundSequence.current
                     board.current ??= new Soundboard(joined ? room : undefined)
                     try {
-                      await board.current.play(async () => {
+                      const started = await board.current.play(async () => {
                         const blob = check(await db().storage.from('sounds').download(sound.path))
                         return blob.arrayBuffer()
-                      }, volume)
+                      }, volume, () => {
+                        if (sequence === soundSequence.current) setActiveSound(null)
+                      })
+                      if (started && sequence === soundSequence.current) setActiveSound(sound.id)
+                    } catch (error) {
+                      setSoundError(`Não foi possível tocar o som: ${errorText(error)}`)
                     } finally {
                       setPlayingSound(null)
                     }
@@ -979,6 +999,8 @@ export function Voice({
                 <small>
                   {playingSound === sound.id
                     ? 'Carregando…'
+                    : activeSound === sound.id
+                      ? 'Reproduzindo…'
                     : joined
                       ? String(i + 1).padStart(2, '0')
                       : 'Ouvir prévia'}
@@ -1062,7 +1084,11 @@ export function Voice({
               }
             />
           </label>
-          <button className="secondary" onClick={() => board.current?.stop()}>
+          <button className="secondary" onClick={() => {
+            soundSequence.current++
+            board.current?.stop()
+            setActiveSound(null)
+          }}>
             <Square size={14} />
             Parar sons
           </button>

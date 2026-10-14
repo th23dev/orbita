@@ -269,6 +269,34 @@ try {
   await expect(page.locator('.workspace-header')).toBeInViewport()
   await page.getByRole('button', { name: 'Soundboard', exact: true }).click()
   await page.getByRole('button', { name: 'Adicionar som', exact: true }).waitFor()
+  // Exercise the actual upload/play path, then measure received PCM with the microphone muted.
+  const wav = Buffer.alloc(44 + 48000 * 2 * 5)
+  wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8)
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22)
+  wav.writeUInt32LE(48000, 24); wav.writeUInt32LE(96000, 28)
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36)
+  wav.writeUInt32LE(wav.length - 44, 40)
+  for (let i = 0; i < 48000 * 5; i++) wav.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / 48000) * 12000), 44 + i * 2)
+  await page.locator('.soundboard-upload input').setInputFiles({ name: 'qa-tone.wav', mimeType: 'audio/wav', buffer: wav })
+  await page.getByRole('button', { name: 'Tocar qa-tone', exact: true }).click()
+  await pages[1].waitForFunction(() => [...document.querySelectorAll('.call-audio audio')].some((audio) => audio.srcObject?.getAudioTracks().length))
+  await pages[1].evaluate(async () => {
+    const context = new AudioContext()
+    await context.resume()
+    window.qaSoundContext = context
+    window.qaSoundAnalysers = [...document.querySelectorAll('.call-audio audio')].map((audio) => {
+      const analyser = context.createAnalyser()
+      context.createMediaStreamSource(audio.srcObject).connect(analyser)
+      return analyser
+    })
+  })
+  await pages[1].waitForFunction(() => window.qaSoundAnalysers.some((analyser) => {
+    const samples = new Float32Array(analyser.fftSize)
+    analyser.getFloatTimeDomainData(samples)
+    return samples.some((sample) => Math.abs(sample) > 0.01)
+  }))
+  await pages[1].evaluate(() => window.qaSoundContext.close())
+  console.log('PASS: sound upload, play button and audible remote samples with microphone muted')
   await page.screenshot({ path: 'test-results/call-soundboard-desktop.png' })
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Tela cheia', exact: true }).click()
@@ -400,6 +428,10 @@ try {
       )
     check(await admin.from('servers').delete().eq('id', serverId))
   }
-  for (const id of users) check(await admin.auth.admin.deleteUser(id))
+  for (const id of users) {
+    const sounds = check(await admin.storage.from('sounds').list(id))
+    if (sounds.length) check(await admin.storage.from('sounds').remove(sounds.map((sound) => `${id}/${sound.name}`)))
+    check(await admin.auth.admin.deleteUser(id))
+  }
   console.log('Temporary accounts and server removed')
 }

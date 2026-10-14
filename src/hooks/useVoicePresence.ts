@@ -87,13 +87,24 @@ export function useVoicePresence(
         // Transient transport failures are retried by the next tick/rejoin.
       } finally {
         entry.busy = false
+        // A departure during an in-flight track/send must not wait for the next tick.
+        const next = current.current?.channelId === entry.id ? current.current : null
+        if (live && Boolean(next) !== Boolean(value)) void publish(entry)
       }
     }
     const render = (entry: (typeof entries)[number]) => {
       if (!live) return
       const snapshot = entry.synced ? entry.room.presenceState<VoiceSession>() : {}
-      const members = voiceMembers(snapshot, entry.updates)
-      const next = reconcileVoiceMembers(entry.visible, members, entry.missing, Date.now())
+      const locallyActive = current.current?.channelId === entry.id
+      const members = voiceMembers(snapshot, entry.updates,
+        locallyActive ? undefined : entry.sessionId)
+      // Only transport interruptions need a grace period. A synchronized departure
+      // (including our own local departure) should disappear immediately.
+      const previous = locallyActive || members.some((member) => member.userId === userId)
+        ? entry.visible
+        : entry.visible.filter((member) => member.userId !== userId)
+      const next = reconcileVoiceMembers(previous, members, entry.missing, Date.now(),
+        entry.synced ? 0 : 1500)
       if (JSON.stringify(next) !== JSON.stringify(entry.visible)) {
         entry.visible = next
         latestRosters.current = { ...latestRosters.current, [entry.id]: next }
@@ -172,9 +183,19 @@ export function useVoicePresence(
     // Coalesce frequent flags. A five-second broadcast refresh also updates
     // observers who subscribe without joining the call/publishing presence.
     const timer = setInterval(sync, 300)
+    const onPageHide = () => {
+      current.current = null
+      for (const entry of entries) {
+        // Send before the browser closes the socket, even if a media broadcast is pending.
+        if (entry.ready) void entry.room.untrack().catch(() => {})
+      }
+      sync()
+    }
+    window.addEventListener('pagehide', onPageHide)
     return () => {
       live = false
       clearInterval(timer)
+      window.removeEventListener('pagehide', onPageHide)
       synchronize.current = () => {}
       for (const entry of entries) void db().removeChannel(entry.room)
     }

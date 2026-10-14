@@ -1134,6 +1134,35 @@ a {
   display: none;
 }
 
+.message-notifications {
+  position: fixed;
+  top: 75px;
+  right: 20px;
+  z-index: 110;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 40px));
+}
+.message-notification {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px #0005;
+}
+.message-notification > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.message-notification strong, .message-notification small { display: block; }
+.message-notification small { color: var(--muted); margin-top: 4px; }
+
 /* Conversations */
 .chat-panel {
   display: flex;
@@ -1435,6 +1464,7 @@ a {
 }
 
 .composer {
+  position: relative;
   border: 1px solid #3a403d;
   background: var(--surface);
   border-radius: 10px;
@@ -1443,6 +1473,53 @@ a {
   align-items: center;
   padding: 10px 12px;
 }
+
+.mention-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: min(280px, 40vh);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #3a403d;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px #0005;
+}
+
+.mention-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.mention-menu button:hover,
+.mention-menu button[aria-selected='true'] {
+  background: #ffffff12;
+}
+
+.mention-menu button > span:last-child { min-width: 0; }
+.mention-menu strong, .mention-menu small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-menu small { opacity: .65; }
+.mention-menu p { padding: 10px; }
+.message-mention {
+  color: var(--accent);
+  background: #ffffff0d;
+  border-radius: 4px;
+  padding: 0 3px;
+  font: inherit;
+}
+.message-mention:hover { text-decoration: underline; }
 
 .composer textarea {
   border: 0;

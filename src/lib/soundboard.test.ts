@@ -5,7 +5,7 @@ import { Soundboard } from './soundboard'
 vi.mock('livekit-client', () => ({
   Track: { Source: { Unknown: 'unknown' } },
   LocalAudioTrack: class {
-    constructor(public mediaStreamTrack: unknown) {}
+    constructor(public mediaStreamTrack: unknown, _constraints: unknown, public isUserProvided: boolean) {}
     stop = vi.fn()
   },
 }))
@@ -56,7 +56,7 @@ describe('Soundboard track lifecycle', () => {
     await board.play(async () => new ArrayBuffer(4), 0.4)
     const context = AudioContextStub.current
     expect(participant.publishTrack).toHaveBeenCalledWith(
-      expect.objectContaining({ mediaStreamTrack: mediaTrack }),
+      expect.objectContaining({ mediaStreamTrack: mediaTrack, isUserProvided: true }),
       expect.objectContaining({ name: 'orbita-soundboard' }),
     )
     expect(context.gain.connect).toHaveBeenCalledWith(context.output)
@@ -128,6 +128,29 @@ describe('Soundboard track lifecycle', () => {
     expect(AudioContextStub.current.gain.connect).toHaveBeenCalledWith(
       AudioContextStub.current.destination,
     )
+    await board.dispose()
+  })
+  it('prepares the room track before a clip is selected and reuses it for playback', async () => {
+    const { board, participant } = create()
+    await board.prepare()
+    expect(participant.publishTrack).toHaveBeenCalledOnce()
+    expect(AudioContextStub.current.source.start).not.toHaveBeenCalled()
+    const ended = vi.fn()
+    await board.play(async () => new ArrayBuffer(4), 0.5, ended)
+    expect(participant.publishTrack).toHaveBeenCalledOnce()
+    ;(AudioContextStub.current.source.onended as unknown as () => void)()
+    expect(ended).toHaveBeenCalledOnce()
+    await board.dispose()
+  })
+  it('resumes again after loading, before starting the decoded sound', async () => {
+    const board = new Soundboard()
+    await board.play(async () => {
+      AudioContextStub.current.resume.mockClear()
+      return new ArrayBuffer(4)
+    }, 0.5)
+    expect(AudioContextStub.current.resume).toHaveBeenCalledOnce()
+    expect(AudioContextStub.current.resume.mock.invocationCallOrder[0])
+      .toBeLessThan(AudioContextStub.current.source.start.mock.invocationCallOrder[0])
     await board.dispose()
   })
   it('can retry after publication failed instead of caching a rejected promise', async () => {

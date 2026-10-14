@@ -5,11 +5,13 @@ export type VoiceSession = Partial<VoiceState> & { inCall?: boolean; sessionId?:
 export function voiceMembers(
   state: Record<string, VoiceSession[]>,
   updates: Map<string, VoiceState>,
+  excludedSessionId?: string,
 ): VoiceMember[] {
   return Object.entries(state)
     .flatMap(([userId, sessions]) => {
       const connected = sessions
-        .filter((session) => session.inCall === true)
+        .filter((session) => session.inCall === true &&
+          (!excludedSessionId || session.sessionId !== excludedSessionId))
         .map((session) => updates.get(session.sessionId || '') || session)
       return connected.length
         ? [

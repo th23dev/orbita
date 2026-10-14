@@ -4,6 +4,7 @@ import { check, db, errorText } from '../lib/supabase'
 import { upload, validateFile } from '../lib/files'
 import type { Profile, Settings as Preferences } from '../lib/types'
 import { Avatar, Modal } from './ui'
+import { notificationWorker } from '../lib/notifications'
 
 export function Settings({
   me,
@@ -23,6 +24,7 @@ export function Settings({
     [bio, setBio] = useState(me.bio),
     [status, setStatus] = useState(me.status),
     [busy, setBusy] = useState(false)
+  const [notificationNote, setNotificationNote] = useState('')
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     try {
@@ -152,11 +154,14 @@ export function Settings({
             disabled={busy}
             onClick={() =>
               void run(async () => {
-                if (!('Notification' in window))
-                  throw new Error('Este navegador não oferece notificações.')
                 const enabled = !settings.notifications
-                if (enabled && (await Notification.requestPermission()) !== 'granted')
-                  throw new Error('Permita notificações nas configurações do navegador.')
+                setNotificationNote('')
+                if (enabled) {
+                  const permission = 'Notification' in window ? await Notification.requestPermission() : 'denied'
+                  if (permission !== 'granted')
+                    setNotificationNote('Avisos dentro do app ativados. Para receber avisos em segundo plano, permita notificações nas configurações do navegador.')
+                  else await notificationWorker().catch(() => {})
+                }
                 check(
                   await db()
                     .from('user_settings')
@@ -169,6 +174,7 @@ export function Settings({
             {settings.notifications ? 'Desativar' : 'Ativar'}
           </button>
         </div>
+        <p className="muted" role="status">{notificationNote || 'Com a Órbita aberta, receba avisos de novas mensagens, inclusive em segundo plano.'}</p>
         <button className="primary" disabled={busy}>
           {busy ? 'Salvando…' : 'Salvar perfil'}
         </button>

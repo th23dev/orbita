@@ -44,6 +44,7 @@ import { Avatar, Empty, IconButton, Logo, Modal } from './components/ui'
 import { check, db, errorText, supabase } from './lib/supabase'
 import { useWorkspace } from './hooks/useWorkspace'
 import { usePresence } from './hooks/usePresence'
+import { useNotifications } from './hooks/useNotifications'
 import { useVoicePresence } from './hooks/useVoicePresence'
 import type { VoicePresence } from './hooks/useVoicePresence'
 import type { Channel, Profile, Space } from './lib/types'
@@ -95,14 +96,16 @@ function Workspace({ session }: { session: Session }) {
     .filter((f) => f.status === 'accepted')
     .map((f) => (f.requester_id === session.user.id ? f.addressee_id : f.requester_id))
   const friendProfiles = data.profiles.filter((p) => friendIds.includes(p.id))
-  const conversationName = (id: string, fallback: string) => {
+  const conversationProfile = (id: string) => {
     const members = data.dmMembers.filter((m) => m.conversation_id === id)
     return members.length === 2
       ? data.profiles.find(
           (p) => p.id === members.find((m) => m.user_id !== session.user.id)?.user_id,
-        )?.display_name || fallback
-      : fallback
+        )
+      : undefined
   }
+  const conversationName = (id: string, fallback: string) =>
+    conversationProfile(id)?.display_name || fallback
   const serverChannels = data.channels.filter((c) => c.server_id === serverId)
   const selectedChannel =
     selection?.kind === 'channel' ? data.channels.find((c) => c.id === selection.id) : null
@@ -131,6 +134,28 @@ function Workspace({ session }: { session: Session }) {
           }
         : null
   const online = usePresence(currentServer ? `server:${currentServer.id}` : null, data.me)
+  const notifications = useNotifications({
+    userId: session.user.id,
+    enabled: data.settings.notifications,
+    space,
+    profiles: data.profiles,
+    channels: data.channels,
+    report,
+    open: (target) => {
+      if (target.kind === 'channel') {
+        const channel = data.channels.find((item) => item.id === target.id)
+        if (!channel) return
+        setServerId(channel.server_id)
+        select('channel', channel.id)
+      } else {
+        const conversation = data.conversations.find((item) => item.id === target.id)
+        if (!conversation) return
+        setServerId('')
+        select('dm', conversation.canonical_id || conversation.id)
+      }
+      setModal(null)
+    },
+  })
   const memberIds = data.members.filter((m) => m.server_id === serverId).map((m) => m.user_id)
   const people = data.profiles
     .filter((p) => memberIds.includes(p.id))
@@ -150,7 +175,10 @@ function Workspace({ session }: { session: Session }) {
         m.status === 'accepted' &&
         m.role === 'moderator',
     )
-  const leave = useCallback(() => setVoice(null), [])
+  const leave = useCallback(() => {
+    setCallPresence(null)
+    setVoice(null)
+  }, [])
   useEffect(() => {
     try {
       localStorage.setItem('orbita:channel-groups', JSON.stringify(collapsed))
@@ -485,9 +513,13 @@ function Workspace({ session }: { session: Session }) {
                       select('dm', c.id)
                     }}
                   >
-                    <span className="dm-icon">
-                      {conversationName(c.id, c.name).slice(0, 1).toUpperCase()}
-                    </span>
+                    {conversationProfile(c.id) ? (
+                      <Avatar profile={conversationProfile(c.id)} small />
+                    ) : (
+                      <span className="dm-icon">
+                        {conversationName(c.id, c.name).slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
                     <span>{conversationName(c.id, c.name)}</span>
                   </button>
                 ))}
@@ -651,6 +683,9 @@ function Workspace({ session }: { session: Session }) {
                 space={space}
                 userId={session.user.id}
                 profiles={data.profiles}
+                mentionMembers={data.profiles.filter((profile) =>
+                  data.members.some((member) => member.server_id === selectedChannel?.server_id && member.user_id === profile.id),
+                )}
                 report={report}
                 openProfile={setViewProfile}
               />
@@ -820,6 +855,20 @@ function Workspace({ session }: { session: Session }) {
           </IconButton>
         </div>
       )}
+      <div className="message-notifications" aria-label="Notificações de mensagens" aria-live="polite">
+        {notifications.notices.map((notice) => (
+          <div className="message-notification" key={notice.messageId}>
+            <button type="button" onClick={() => {
+              notifications.open(notice)
+              notifications.dismiss(notice.messageId)
+            }}>
+              <MessageCircle size={20} />
+              <span><strong>{notice.title}</strong><small>Abrir conversa</small></span>
+            </button>
+            <IconButton label="Dispensar notificação" onClick={() => notifications.dismiss(notice.messageId)}><X size={16} /></IconButton>
+          </div>
+        ))}
+      </div>
       {modal === 'settings' && data.me && (
         <Settings
           me={data.me}

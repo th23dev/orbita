@@ -22,6 +22,7 @@ import type { Attachment, Message, Profile, Reaction, Space } from '../lib/types
 import { useChat } from '../hooks/useChat'
 import { Avatar, Empty, IconButton } from './ui'
 import { useDialogs } from './Dialogs'
+import { insertMention, mentionQuery, normalizeMention } from '../lib/mentions'
 
 function FileCard({ file, report }: { file: Attachment; report: (s: string) => void }) {
   const [url, setUrl] = useState('')
@@ -78,12 +79,14 @@ export function Chat({
   space,
   userId,
   profiles,
+  mentionMembers,
   report,
   openProfile,
 }: {
   space: Space
   userId: string
   profiles: Profile[]
+  mentionMembers: Profile[]
   report: (s: string) => void
   openProfile: (profile: Profile) => void
 }) {
@@ -115,6 +118,39 @@ export function Chat({
     scroller = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true)
   const profile = (id: string) => profiles.find((p) => p.id === id)
+  const composer = useRef<HTMLTextAreaElement>(null)
+  const [cursor, setCursor] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  const mention = space.kind === 'channel' && !mentionDismissed && !sending
+    ? mentionQuery(content, cursor) : null
+  const suggestions = mention ? mentionMembers.filter((member) =>
+    normalizeMention(`${member.display_name} ${member.username}`).includes(normalizeMention(mention.query)),
+  ).sort((a, b) => a.display_name.localeCompare(b.display_name, 'pt-BR')) : []
+  const selectedMention = Math.min(mentionIndex, Math.max(0, suggestions.length - 1))
+  useEffect(() => {
+    document.getElementById(`mention-option-${selectedMention}`)?.scrollIntoView({ block: 'nearest' })
+  }, [selectedMention])
+  function chooseMention(member: Profile) {
+    if (!mention) return
+    const next = insertMention(content, mention, member.username)
+    if (next.text.length > 4000) return
+    setContent(next.text)
+    setCursor(next.cursor)
+    setMentionDismissed(true)
+    requestAnimationFrame(() => {
+      composer.current?.focus()
+      composer.current?.setSelectionRange(next.cursor, next.cursor)
+    })
+  }
+  function renderMentions(text: string) {
+    if (space.kind !== 'channel') return text
+    return text.split(/((?<![\w@])@[a-z0-9_]{3,32}\b)/g).map((part, index) => {
+      const member = part.startsWith('@') && mentionMembers.find((p) => p.username === part.slice(1))
+      return member ? <button type="button" className="message-mention" key={index}
+        onClick={() => openProfile(member)}>{part}</button> : part
+    })
+  }
   const visibleMessages =
     context?.map((m) => chat.messages.find((current) => current.id === m.id) || m) ||
     results ||
@@ -250,6 +286,7 @@ export function Chat({
   }
   async function send() {
     if (sending || (!content.trim() && !pending.length)) return
+    composer.current?.focus({ preventScroll: true })
     setSending(true)
     try {
       const row = check(
@@ -503,7 +540,7 @@ export function Chat({
                   </form>
                 ) : (
                   <p className="message-content">
-                    {message.deleted_at ? 'Mensagem excluída' : message.content}
+                    {message.deleted_at ? 'Mensagem excluída' : renderMentions(message.content)}
                   </p>
                 )}
                 {!message.deleted_at && (
@@ -651,6 +688,19 @@ export function Chat({
             void send()
           }}
         >
+          {mention && (
+            <div className="mention-menu" id="mention-suggestions" role="listbox" aria-label="Membros do servidor">
+              {suggestions.length ? suggestions.map((member, index) => (
+                <button type="button" role="option" aria-selected={index === selectedMention}
+                  id={`mention-option-${index}`} key={member.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => chooseMention(member)}>
+                  <Avatar profile={member} small />
+                  <span><strong>{member.display_name}</strong><small>@{member.username}</small></span>
+                </button>
+              )) : <p role="status">Nenhum membro encontrado.</p>}
+            </div>
+          )}
           <input
             ref={fileInput}
             type="file"
@@ -669,17 +719,42 @@ export function Chat({
             <Paperclip size={21} />
           </IconButton>
           <textarea
+            ref={composer}
+            aria-autocomplete="list"
+            aria-controls={mention ? 'mention-suggestions' : undefined}
+            aria-activedescendant={mention && suggestions.length ? `mention-option-${selectedMention}` : undefined}
+            onBlur={() => setMentionDismissed(true)}
+            onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
             aria-label="Mensagem"
             placeholder={`Converse em ${space.kind === 'channel' ? '#' : ''}${space.name}`}
             maxLength={4000}
             value={content}
-            disabled={sending}
+            readOnly={sending}
+            aria-busy={sending}
             rows={1}
             onChange={(e) => {
               setContent(e.target.value)
+              setCursor(e.target.selectionStart)
+              setMentionIndex(0)
+              setMentionDismissed(false)
               chat.sendTyping()
             }}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return
+              if (mention) {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setMentionDismissed(true)
+                  return
+                }
+                if (suggestions.length && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(e.key) && !e.shiftKey) {
+                  e.preventDefault()
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp')
+                    setMentionIndex((selectedMention + (e.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length)
+                  else chooseMention(suggestions[selectedMention])
+                  return
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 void send()

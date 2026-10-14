@@ -1,6 +1,16 @@
 import { expect, it } from 'vitest'
 import { reconcileVoiceMembers, voiceMembers } from './voice-roster'
 const alice = { userId: 'alice', muted: true, speaking: false, camera: false, screen: false }
+it('removes confirmed departures immediately without delaying remaining participants', () => {
+  const bob = { ...alice, userId: 'bob' }
+  expect(reconcileVoiceMembers([alice, bob], [bob], new Map(), 0, 0)).toEqual([bob])
+})
+it('hides a departed local session before server acknowledgment but preserves another tab', () => {
+  const local = { inCall: true, sessionId: 'local', muted: true }
+  const remote = { inCall: true, sessionId: 'other-tab', muted: true }
+  expect(voiceMembers({ alice: [local] }, new Map(), 'local')).toEqual([])
+  expect(voiceMembers({ alice: [local, remote] }, new Map(), 'local')).toEqual([alice])
+})
 it('keeps members across brief empty snapshots and removes real departures after the grace period', () => {
   const missing = new Map<string, number>()
   expect(reconcileVoiceMembers([alice], [], missing, 0)).toEqual([alice])

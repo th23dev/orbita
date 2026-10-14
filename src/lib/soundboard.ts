@@ -12,6 +12,10 @@ export class Soundboard {
   private generation = 0
   private init: Promise<void> | null = null
   constructor(private room?: Room) {}
+  async prepare() {
+    if (this.disposed) throw new Error('Entre em uma chamada para tocar um som.')
+    await this.initialize()
+  }
   private async initialize() {
     if (this.init) return this.init
     this.init = (async () => {
@@ -27,7 +31,8 @@ export class Soundboard {
       this.track = new LocalAudioTrack(
         this.destination.stream.getAudioTracks()[0],
         undefined,
-        false,
+        true,
+        this.context,
       )
       await this.room.localParticipant.publishTrack(this.track, {
         name: 'orbita-soundboard',
@@ -46,7 +51,7 @@ export class Soundboard {
     })
     return this.init
   }
-  async play(load: () => Promise<ArrayBuffer>, volume: number) {
+  async play(load: () => Promise<ArrayBuffer>, volume: number, onEnded?: () => void) {
     if (this.disposed) throw new Error('Entre em uma chamada para tocar um som.')
     this.stop()
     const generation = this.generation
@@ -60,6 +65,10 @@ export class Soundboard {
     const buffer = await this.context!.decodeAudioData(data)
     if (this.disposed || generation !== this.generation) return
     if (buffer.duration > 30) throw new Error('Use sons com até 30 segundos.')
+    // Downloads/decoding can outlive a tab or device interruption. Resuming only
+    // at the start of the click leaves sources queued silently in a suspended context.
+    await this.context!.resume()
+    if (this.disposed || generation !== this.generation) return
     this.setVolume(volume)
     const source = this.context!.createBufferSource()
     source.buffer = buffer
@@ -68,8 +77,10 @@ export class Soundboard {
     source.onended = () => {
       this.sources.delete(source)
       source.disconnect()
+      onEnded?.()
     }
     source.start()
+    return true
   }
   setVolume(volume: number) {
     if (this.gain) this.gain.gain.value = Math.max(0, Math.min(1, volume))

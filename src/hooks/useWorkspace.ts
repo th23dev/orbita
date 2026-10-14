@@ -123,31 +123,6 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
   }, [settings.theme])
-  useEffect(() => {
-    if (
-      !settings.notifications ||
-      !('Notification' in window) ||
-      Notification.permission !== 'granted'
-    )
-      return
-    const sub = db()
-      .channel(`notifications:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        ({ new: row }) => {
-          if (row.author_id !== userId && document.hidden)
-            new Notification('Nova mensagem na Órbita', {
-              body: 'Abra a Órbita para ler a conversa.',
-              tag: row.channel_id || row.conversation_id,
-            })
-        },
-      )
-      .subscribe()
-    return () => {
-      void db().removeChannel(sub)
-    }
-  }, [settings.notifications, userId])
   return {
     servers,
     channels,
