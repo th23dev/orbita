@@ -243,28 +243,12 @@ a {
 }
 
 .logo {
-  display: inline-flex;
-  align-items: center;
-  font-size: 28px;
-  font-weight: 750;
-  letter-spacing: -1.5px;
-  gap: 10px;
-}
-
-.logo-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: var(--accent-dark);
-  width: 40px;
+  display: inline-block;
+  width: 150px;
   height: 40px;
-  border-radius: 12px;
-}
-
-.logo-dot {
-  color: var(--accent);
-  margin-left: -9px;
+  flex-shrink: 0;
+  overflow: hidden;
+  vertical-align: middle;
 }
 
 .pulse,
@@ -319,7 +303,8 @@ a {
 }
 
 .auth-story .logo {
-  font-size: 31px;
+  width: 165px;
+  height: 44px;
 }
 
 .story-content {
@@ -730,17 +715,8 @@ a {
 }
 
 .sidebar-header .logo {
-  font-size: 25px;
-}
-
-.sidebar-header .logo-icon {
-  width: 31px;
-  height: 31px;
-  border-radius: 10px;
-}
-
-.sidebar-header .logo-icon svg {
-  width: 21px;
+  width: 120px;
+  height: 32px;
 }
 
 .sidebar-header > strong {

@@ -8,6 +8,8 @@
 
 ## Estado da entrega
 
+Atualização de canais, convites com aceitação, cargos, respostas, DMs e áudio: veja [COMMUNITY-UPDATE.md](docs/COMMUNITY-UPDATE.md), incluindo a migração aplicada e os limites de chamadas em segundo plano.
+
 O código das funcionalidades está implementado. O frontend está vinculado ao projeto Supabase **orbita**, na organização **th23dev**, região São Paulo. As variáveis públicas de conexão estão configuradas no GitHub Actions. Não há usuários, mensagens, sons ou chamadas fictícios.
 
 **Projeto Supabase criado:** [abrir painel](https://supabase.com/dashboard/project/wjzirjfoaabpmyehzbtb). As 16 tabelas com RLS, os três buckets privados, a publicação Realtime e a função `livekit-token` foram aplicados e verificados. O projeto anterior `th23dev` não foi alterado.

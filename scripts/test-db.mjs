@@ -388,7 +388,7 @@ await test('Sound libraries are private and validate media types', async () => {
     [ids[0]],
   )
 })
-await test('Only the server owner can add existing users directly', async () => {
+await test('No one can add users without acceptance, including the owner', async () => {
   const target = (
     await as(
       ids[0],
@@ -399,10 +399,19 @@ await test('Only the server owner can add existing users directly', async () => 
   const insert = 'insert into server_members(server_id,user_id) values($1,$2)'
   await denied(ids[1], insert, [target.id, ids[1]])
   await denied(ids[1], insert, [target.id, ids[2]])
-  await as(ids[0], insert, [target.id, ids[1]])
+  await denied(ids[0], insert, [target.id, ids[1]])
+  const invitation = (
+    await as(ids[0], 'select public.invite_member($1,$2) as id', [target.id, ids[1]])
+  )[0].id
+  assert.equal((await as(ids[1], 'select * from servers where id=$1', [target.id])).length, 0)
+  await denied(ids[2], 'select public.respond_invite($1,true)', [invitation])
+  await as(ids[1], 'select public.respond_invite($1,true)', [invitation])
   assert.equal((await as(ids[1], 'select * from servers where id=$1', [target.id])).length, 1)
   await denied(ids[1], insert, [target.id, ids[2]])
-  await as(ids[0], insert, [target.id, ids[2]])
+  const otherInvite = (
+    await as(ids[0], 'select public.invite_member($1,$2) as id', [target.id, ids[2]])
+  )[0].id
+  await as(ids[2], 'select public.respond_invite($1,true)', [otherInvite])
   assert.equal(
     (await as(ids[2], 'select * from channels where server_id=$1', [target.id])).length,
     2,
@@ -414,13 +423,125 @@ await test('Only the server owner can add existing users directly', async () => 
     [target.id, ids[2]],
   )
 })
+await test('One-to-one conversations reuse the same id from both users', async () => {
+  const first = (await as(ids[0], "select public.create_dm('Bob',$1) as id", [[ids[1]]]))[0].id
+  const again = (await as(ids[0], "select public.create_dm('Bob again',$1) as id", [[ids[1]]]))[0]
+    .id
+  const reverse = (await as(ids[1], "select public.create_dm('Alice',$1) as id", [[ids[0]]]))[0].id
+  assert.equal(first, dm)
+  assert.equal(again, dm)
+  assert.equal(reverse, dm)
+})
+let consentServer, consentChannel
+await test('Creation invites friends atomically and never enrolls them', async () => {
+  consentServer = (
+    await as(ids[0], "select public.create_community('Consent','A community',$1) as id", [[ids[1]]])
+  )[0].id
+  assert.equal((await as(ids[1], 'select * from servers where id=$1', [consentServer])).length, 0)
+  const inv = (
+    await as(ids[1], 'select * from community_invites where server_id=$1', [consentServer])
+  )[0]
+  assert.ok(inv)
+  await as(ids[1], 'select public.respond_invite($1,false)', [inv.id])
+  assert.equal((await as(ids[1], 'select * from servers where id=$1', [consentServer])).length, 0)
+  await denied(ids[0], "select public.create_community('Invalid','',$1)", [[ids[2]]])
+  assert.equal((await as(ids[0], "select * from servers where name='Invalid'")).length, 0)
+})
+await test('Private channel invitation grants access only after acceptance', async () => {
+  consentChannel = (
+    await as(ids[0], "select public.create_community('Private','Topic',$1,$2,'text',true) as id", [
+      [ids[1]],
+      consentServer,
+    ])
+  )[0].id
+  const inv = (
+    await as(ids[1], 'select * from community_invites where channel_id=$1', [consentChannel])
+  )[0]
+  assert.equal((await as(ids[1], 'select * from channels where id=$1', [consentChannel])).length, 0)
+  await denied(ids[2], 'select public.respond_invite($1,true)', [inv.id])
+  await as(ids[1], 'select public.respond_invite($1,true)', [inv.id])
+  assert.equal((await as(ids[1], 'select * from channels where id=$1', [consentChannel])).length, 1)
+  assert.equal(
+    (await as(ids[1], 'select * from public.channel_people($1)', [consentChannel])).length,
+    2,
+  )
+  await denied(ids[2], 'select * from public.channel_people($1)', [consentChannel])
+})
+await test('Channel moderators can rename but cannot promote themselves to administrator', async () => {
+  await denied(ids[1], "select public.manage_membership($1,$2,'promote')", [consentServer, ids[1]])
+  await as(ids[0], "select public.manage_membership($1,$2,'promote',$3)", [
+    consentServer,
+    ids[1],
+    consentChannel,
+  ])
+  const updated = await as(
+    ids[1],
+    "update channels set name='Renamed',topic='New topic' where id=$1 returning id",
+    [consentChannel],
+  )
+  assert.equal(updated.length, 1)
+  await denied(ids[1], "select public.manage_membership($1,$2,'promote',$3)", [
+    consentServer,
+    ids[1],
+    consentChannel,
+  ])
+  await denied(ids[1], "select public.manage_membership($1,$2,'remove',$3)", [
+    consentServer,
+    ids[0],
+    consentChannel,
+  ])
+})
+await test('Leaving revokes access even when legacy roles or direct grants allow it', async () => {
+  await as(
+    ids[0],
+    'insert into channel_member_permissions(server_id,channel_id,user_id) values($1,$2,$3)',
+    [consentServer, consentChannel, ids[1]],
+  )
+  await as(ids[1], "select public.manage_membership($1,$2,'leave',$3)", [
+    consentServer,
+    ids[1],
+    consentChannel,
+  ])
+  assert.equal((await as(ids[1], 'select * from channels where id=$1', [consentChannel])).length, 0)
+  await denied(ids[1], "select public.manage_membership($1,$2,'promote',$3)", [
+    consentServer,
+    ids[1],
+    consentChannel,
+  ])
+  const inv = (
+    await as(ids[0], 'select public.invite_member($1,$2,$3) as id', [
+      consentServer,
+      ids[1],
+      consentChannel,
+    ])
+  )[0].id
+  await as(ids[1], 'select public.respond_invite($1,true)', [inv])
+  assert.equal((await as(ids[1], 'select * from channels where id=$1', [consentChannel])).length, 1)
+})
+await test('Only the owner promotes administrators; members can leave the server', async () => {
+  await as(ids[0], "select public.manage_membership($1,$2,'promote')", [consentServer, ids[1]])
+  assert.equal(
+    (
+      await as(
+        ids[1],
+        "insert into channels(server_id,name,kind) values($1,'Admin channel','text') returning id",
+        [consentServer],
+      )
+    ).length,
+    1,
+  )
+  await denied(ids[1], "select public.manage_membership($1,$2,'remove')", [consentServer, ids[0]])
+  await as(ids[1], "select public.manage_membership($1,$2,'leave')", [consentServer, ids[1]])
+  assert.equal((await as(ids[1], 'select * from servers where id=$1', [consentServer])).length, 0)
+  await denied(ids[0], "select public.manage_membership($1,$2,'leave')", [consentServer, ids[0]])
+})
 await test('Every public table has RLS and anon has no data grants', async () => {
   const tables = (
     await db.query(
       "select relname,relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'",
     )
   ).rows
-  assert.equal(tables.length, 17)
+  assert.equal(tables.length, 19)
   assert.ok(tables.every((t) => t.relrowsecurity))
   await db.exec('begin;set local role anon;')
   try {

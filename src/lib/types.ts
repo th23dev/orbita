@@ -29,8 +29,37 @@ export type Channel = {
   is_private: boolean
   archived: boolean
 }
-export type Conversation = { id: string; name: string; created_by: string }
-export type Space = { id: string; kind: 'channel' | 'dm'; name: string; topic?: string }
+export type Conversation = {
+  id: string
+  name: string
+  created_by: string
+  canonical_id?: string | null
+}
+export type Space = {
+  id: string
+  kind: 'channel' | 'dm'
+  name: string
+  topic?: string
+  conversationIds?: string[]
+}
+export type ServerMember = { server_id: string; user_id: string; access_role: 'member' | 'admin' }
+export type ChannelMembership = {
+  channel_id: string
+  server_id: string
+  user_id: string
+  status: 'accepted' | 'left' | 'removed'
+  role: 'member' | 'moderator'
+}
+export type CommunityInvite = {
+  id: string
+  server_id: string
+  channel_id: string | null
+  inviter_id: string
+  invitee_id: string
+  server_name: string
+  channel_name: string | null
+  expires_at: string
+}
 export type Message = {
   id: string
   channel_id: string | null

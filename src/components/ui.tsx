@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode, ButtonHTMLAttributes } from 'react'
-import { Orbit, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { signedUrl } from '../lib/files'
 import type { Profile } from '../lib/types'
 
 export function Logo() {
   return (
-    <span className="logo">
-      <span className="logo-icon">
-        <Orbit size={25} />
-      </span>
-      órbita<span className="logo-dot">.</span>
-    </span>
+    <svg className="logo" viewBox="310 168 1580 420" role="img" aria-label="Órbita">
+      <image href={`${import.meta.env.BASE_URL}orbita-logo.png`} width="2172" height="724" />
+    </svg>
   )
 }
 export function IconButton({
@@ -43,7 +40,7 @@ export function Avatar({
         .then((u) => {
           if (live) setUrl(u)
         })
-        .catch(() => {})
+        .catch(() => { })
     return () => {
       live = false
     }
@@ -69,6 +66,7 @@ export function Modal({
   close: () => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
   useEffect(() => {
     ref.current?.showModal()
     const dialog = ref.current
@@ -78,6 +76,7 @@ export function Modal({
     <dialog
       ref={ref}
       className="modal"
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault()
         close()
@@ -88,7 +87,7 @@ export function Modal({
     >
       <div className="modal-inner">
         <header>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <IconButton label="Fechar" onClick={close}>
             <X size={20} />
           </IconButton>

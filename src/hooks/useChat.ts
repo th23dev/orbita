@@ -15,6 +15,8 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
     lastType = useRef(0),
     rows = useRef<Message[]>([])
   const field = space.kind === 'channel' ? 'channel_id' : 'conversation_id'
+  const scopeKey = (space.conversationIds?.length ? space.conversationIds : [space.id]).join(',')
+  const scopeIds = scopeKey.split(',')
   const merge = useCallback(
     (incoming: Message[]) =>
       setMessages((previous) => {
@@ -66,15 +68,18 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
       let query = db()
         .from('messages')
         .select('*')
-        .eq(field, space.id)
+        .in(field, scopeKey.split(','))
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
       if (rows.current.length) query = query.gte('created_at', rows.current[0].created_at)
-      const data = check(await query.limit(rows.current.length ? 1000 : 50)) as Message[]
+      const initial = !rows.current.length
+      const data = check(
+        await query.limit(initial ? 50 : Math.max(1000, rows.current.length)),
+      ) as Message[]
       if (active) {
         merge(data)
         setLoading(false)
-        if (!rows.current.length) setMore(data.length === 50)
+        if (initial) setMore(data.length === 50)
         related()
       }
     }
@@ -83,7 +88,7 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
     })
     sub.on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'messages', filter: `${field}=eq.${space.id}` },
+      { event: '*', schema: 'public', table: 'messages', filter: `${field}=in.(${scopeKey})` },
       (payload) => {
         if (payload.eventType !== 'DELETE') merge([payload.new as Message])
         related()
@@ -92,7 +97,7 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
     for (const table of ['message_reactions', 'attachments'])
       sub.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table, filter: `${field}=eq.${space.id}` },
+        { event: '*', schema: 'public', table, filter: `${field}=in.(${scopeKey})` },
         related,
       )
     sub
@@ -126,7 +131,7 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
       live.current = null
       void db().removeChannel(sub)
     }
-  }, [space.id, space.kind, field, userId, report, merge, fetchRelated])
+  }, [space.id, space.kind, field, scopeKey, userId, report, merge, fetchRelated])
   async function loadMore() {
     const first = messages[0]
     if (!first) return
@@ -134,7 +139,7 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
       await db()
         .from('messages')
         .select('*')
-        .eq(field, space.id)
+        .in(field, scopeIds)
         .or(
           `created_at.lt.${first.created_at},and(created_at.eq.${first.created_at},id.lt.${first.id})`,
         )
@@ -155,6 +160,38 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
       void live.current?.send({ type: 'broadcast', event: 'typing', payload: { user_id: userId } })
     }
   }
+  async function contextFor(id: string) {
+    const target = check(
+      await db().from('messages').select('*').in(field, scopeIds).eq('id', id).maybeSingle(),
+    ) as Message | null
+    if (!target) throw new Error('A mensagem original não está mais disponível.')
+    const [before, after] = await Promise.all([
+      db()
+        .from('messages')
+        .select('*')
+        .in(field, scopeIds)
+        .lte('created_at', target.created_at)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(30),
+      db()
+        .from('messages')
+        .select('*')
+        .in(field, scopeIds)
+        .gt('created_at', target.created_at)
+        .order('created_at')
+        .order('id')
+        .limit(30),
+    ])
+    return [
+      ...new Map(
+        [...(check(before) as Message[]), target, ...(check(after) as Message[])].map((m) => [
+          m.id,
+          m,
+        ]),
+      ).values(),
+    ].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+  }
   return {
     messages,
     reactions,
@@ -167,5 +204,6 @@ export function useChat(space: Space, userId: string, report: (s: string) => voi
     sendTyping,
     merge,
     fetchRelated,
+    contextFor,
   }
 }

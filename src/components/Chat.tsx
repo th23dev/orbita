@@ -18,9 +18,10 @@ import {
 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { attachFile, bytes, safePreview, signedUrl, validateFile } from '../lib/files'
-import type { Attachment, Message, Profile, Space } from '../lib/types'
+import type { Attachment, Message, Profile, Reaction, Space } from '../lib/types'
 import { useChat } from '../hooks/useChat'
 import { Avatar, Empty, IconButton } from './ui'
+import { useDialogs } from './Dialogs'
 
 function FileCard({ file, report }: { file: Attachment; report: (s: string) => void }) {
   const [url, setUrl] = useState('')
@@ -78,13 +79,24 @@ export function Chat({
   userId,
   profiles,
   report,
+  openProfile,
 }: {
   space: Space
   userId: string
   profiles: Profile[]
   report: (s: string) => void
+  openProfile: (profile: Profile) => void
 }) {
+  const dialogs = useDialogs()
   const chat = useChat(space, userId, report)
+  const [parents, setParents] = useState<Record<string, Message>>({})
+  const [context, setContext] = useState<Message[] | null>(null)
+  const [contextAttachments, setContextAttachments] = useState<Attachment[]>([])
+  const [contextReactions, setContextReactions] = useState<Reaction[]>([])
+  const [highlight, setHighlight] = useState<string | null>(null)
+  const [jumping, setJumping] = useState(false)
+  const jumpSequence = useRef(0)
+  const scopeKey = (space.conversationIds?.length ? space.conversationIds : [space.id]).join(',')
   const [actionFor, setActionFor] = useState<string | null>(null)
   const [content, setContent] = useState(''),
     [reply, setReply] = useState<Message | null>(null),
@@ -103,8 +115,87 @@ export function Chat({
     scroller = useRef<HTMLDivElement>(null),
     nearBottom = useRef(true)
   const profile = (id: string) => profiles.find((p) => p.id === id)
+  const visibleMessages =
+    context?.map((m) => chat.messages.find((current) => current.id === m.id) || m) ||
+    results ||
+    chat.messages
   useEffect(() => {
-    if (nearBottom.current) bottom.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!context) return
+    let active = true
+    const ids = context.map((m) => m.id)
+    void (async () => {
+      try {
+        const [attachments, reactions] = await Promise.all([
+          db().from('attachments').select('*').in('message_id', ids).eq('ready', true),
+          db().from('message_reactions').select('*').in('message_id', ids).eq('active', true),
+        ])
+        const a = check(attachments) as Attachment[],
+          r = check(reactions) as Reaction[]
+        if (active) {
+          setContextAttachments(a)
+          setContextReactions(r)
+        }
+      } catch (e) {
+        if (active) report(errorText(e))
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [context, chat.attachments, chat.reactions, report])
+  const parentIds = [
+    ...new Set(visibleMessages.map((m) => m.reply_to).filter((id): id is string => !!id)),
+  ]
+    .sort()
+    .join(',')
+  useEffect(() => {
+    if (!parentIds) return
+    let active = true
+    void (async () => {
+      try {
+        const rows = check(
+          await db()
+            .from('messages')
+            .select('*')
+            .in(space.kind === 'channel' ? 'channel_id' : 'conversation_id', scopeKey.split(','))
+            .in('id', parentIds.split(',')),
+        ) as Message[]
+        if (active) setParents(Object.fromEntries(rows.map((m) => [m.id, m])))
+      } catch (e) {
+        if (active) report(errorText(e))
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [parentIds, scopeKey, space.kind, report, chat.messages])
+  useEffect(() => {
+    if (!highlight) return
+    const target = document.getElementById(`message-${highlight}`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target?.focus({ preventScroll: true })
+    const timer = setTimeout(() => setHighlight(null), 3000)
+    return () => clearTimeout(timer)
+  }, [highlight, context, results])
+  async function jump(id: string) {
+    const sequence = ++jumpSequence.current
+    nearBottom.current = false
+    setJumping(true)
+    try {
+      if (!visibleMessages.some((m) => m.id === id)) {
+        const messages = await chat.contextFor(id)
+        if (sequence !== jumpSequence.current) return
+        setContext(messages)
+      }
+      setHighlight(id)
+    } catch (e) {
+      report(errorText(e))
+    } finally {
+      if (sequence === jumpSequence.current) setJumping(false)
+    }
+  }
+  useEffect(() => {
+    if (nearBottom.current && !context) bottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chat.messages.length, chat.attachments.length])
   useEffect(() => {
     if (!query.trim()) {
@@ -120,7 +211,7 @@ export function Chat({
           await db()
             .from('messages')
             .select('*')
-            .eq(space.kind === 'channel' ? 'channel_id' : 'conversation_id', space.id)
+            .in(space.kind === 'channel' ? 'channel_id' : 'conversation_id', scopeKey.split(','))
             .is('deleted_at', null)
             .textSearch('search', query, { type: 'websearch', config: 'simple' })
             .order('created_at', { ascending: false })
@@ -137,7 +228,7 @@ export function Chat({
       active = false
       clearTimeout(timer)
     }
-  }, [query, space.id, space.kind, report, chat.messages])
+  }, [query, space.id, space.kind, scopeKey, report, chat.messages])
   const run = async (action: () => Promise<void>) => {
     try {
       await action()
@@ -176,6 +267,8 @@ export function Chat({
       chat.merge([row])
       setContent('')
       setReply(null)
+      setContext(null)
+      setQuery('')
       nearBottom.current = true
       const failed: File[] = []
       for (const f of pending) {
@@ -250,7 +343,10 @@ export function Chat({
             aria-label="Pesquisar mensagens"
             placeholder="Pesquisar nesta conversa"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setContext(null)
+            }}
           />
           {query && (
             <IconButton label="Limpar pesquisa" onClick={() => setQuery('')}>
@@ -259,6 +355,29 @@ export function Chat({
           )}
         </label>
       </div>
+      {context && (
+        <div className="history-context">
+          <span>Contexto da mensagem respondida</span>
+          <button
+            className="secondary"
+            onClick={() => {
+              jumpSequence.current++
+              setContext(null)
+              setHighlight(null)
+              setQuery('')
+              nearBottom.current = true
+              requestAnimationFrame(() => bottom.current?.scrollIntoView())
+            }}
+          >
+            Voltar às mensagens recentes
+          </button>
+        </div>
+      )}
+      {jumping && (
+        <p role="status" className="center muted">
+          Localizando mensagem original…
+        </p>
+      )}
       <div
         className="message-list"
         ref={scroller}
@@ -267,7 +386,7 @@ export function Chat({
           if (s) nearBottom.current = s.scrollHeight - s.scrollTop - s.clientHeight < 130
         }}
       >
-        {results === null && (
+        {results === null && !context && (
           <div className="channel-welcome">
             <div className="welcome-hash">
               {space.kind === 'channel' ? <Hash size={34} /> : <MessageCircle size={32} />}
@@ -282,7 +401,7 @@ export function Chat({
         )}
         {chat.loading && <p className="center muted">Carregando mensagens…</p>}
         {searching && <p className="center muted">Pesquisando…</p>}
-        {results === null && chat.more && chat.messages.length >= 50 && (
+        {results === null && !context && chat.more && chat.messages.length >= 50 && (
           <button className="secondary load-more" onClick={() => void run(chat.loadMore)}>
             Carregar mensagens anteriores
           </button>
@@ -292,20 +411,34 @@ export function Chat({
             Tente outra palavra.
           </Empty>
         )}
-        {(results || chat.messages).map((message) => {
+        {visibleMessages.map((message) => {
           const author = profile(message.author_id),
             own = message.author_id === userId,
-            reactions = chat.reactions.filter((r) => r.message_id === message.id),
-            parent = chat.messages.find((m) => m.id === message.reply_to)
+            reactions = (context ? contextReactions : chat.reactions).filter(
+              (r) => r.message_id === message.id,
+            ),
+            parent =
+              chat.messages.find((m) => m.id === message.reply_to) ||
+              parents[message.reply_to || '']
           return (
             <article
-              className={`message ${message.deleted_at ? 'deleted' : ''} ${actionFor === message.id ? 'actions-open' : ''}`}
+              className={`message ${message.deleted_at ? 'deleted' : ''} ${actionFor === message.id ? 'actions-open' : ''} ${highlight === message.id ? 'message-highlight' : ''}`}
               key={message.id}
+              id={`message-${message.id}`}
+              tabIndex={-1}
             >
-              <Avatar profile={author} />
+              <button
+                className="profile-trigger"
+                aria-label={`Ver perfil de ${author?.display_name || 'membro'}`}
+                onClick={() => author && openProfile(author)}
+              >
+                <Avatar profile={author} />
+              </button>
               <div className="message-body">
                 <div className="message-meta">
-                  <strong>{author?.display_name || 'Membro'}</strong>
+                  <button className="profile-trigger" onClick={() => author && openProfile(author)}>
+                    <strong>{author?.display_name || 'Membro'}</strong>
+                  </button>
                   <time
                     dateTime={message.created_at}
                     title={new Date(message.created_at).toLocaleString('pt-BR')}
@@ -318,12 +451,25 @@ export function Chat({
                   {message.edited_at && !message.deleted_at && <small>editada</small>}
                 </div>
                 {message.reply_to && !message.deleted_at && (
-                  <div className="reply-preview">
+                  <button
+                    className="reply-preview"
+                    onClick={() => void jump(message.reply_to!)}
+                    aria-label={`Ir à mensagem de ${parent ? profile(parent.author_id)?.display_name || 'membro' : 'origem'}`}
+                  >
                     <Reply size={13} />
-                    {parent?.deleted_at
-                      ? 'Mensagem excluída'
-                      : parent?.content?.slice(0, 100) || 'Resposta a uma mensagem anterior'}
-                  </div>
+                    <strong>
+                      {parent
+                        ? profile(parent.author_id)?.display_name || 'Membro'
+                        : 'Mensagem anterior'}
+                    </strong>
+                    <span>
+                      {parent?.deleted_at
+                        ? 'Mensagem excluída'
+                        : parent
+                          ? parent.content?.slice(0, 140) || 'Anexo'
+                          : 'Carregar mensagem original'}
+                    </span>
+                  </button>
                 )}
                 {editing === message.id ? (
                   <form
@@ -362,7 +508,7 @@ export function Chat({
                 )}
                 {!message.deleted_at && (
                   <>
-                    {chat.attachments
+                    {(context ? contextAttachments : chat.attachments)
                       .filter((a) => a.message_id === message.id)
                       .map((file) => (
                         <FileCard key={file.id} file={file} report={report} />
@@ -420,8 +566,15 @@ export function Chat({
                         </IconButton>
                         <IconButton
                           label="Excluir mensagem"
-                          onClick={() => {
-                            if (window.confirm('Excluir esta mensagem?'))
+                          onClick={async () => {
+                            if (
+                              await dialogs.confirm({
+                                title: 'Excluir mensagem?',
+                                message: 'O conteúdo será removido para todos nesta conversa.',
+                                confirm: 'Excluir',
+                                danger: true,
+                              })
+                            )
                               void run(async () => {
                                 check(
                                   await db()

@@ -7,6 +7,8 @@ import {
   Hash,
   Headphones,
   LockKeyhole,
+  LogOut,
+  Mail,
   Menu,
   MessageCircle,
   Orbit,
@@ -26,6 +28,12 @@ import { Settings } from './components/Settings'
 import { ServerAdmin } from './components/ServerAdmin'
 import { ServerLogo } from './components/ServerLogo'
 import { ServerMembers } from './components/ServerMembers'
+import { ChannelSettings } from './components/ChannelSettings'
+import { FriendPicker } from './components/FriendPicker'
+import { InviteInbox } from './components/InviteInbox'
+import { MemberManager } from './components/MemberManager'
+import { ProfileCard } from './components/ProfileCard'
+import { useDialogs } from './components/Dialogs'
 import {
   clearInvitation,
   invitationCode,
@@ -38,11 +46,24 @@ import { useWorkspace } from './hooks/useWorkspace'
 import { usePresence } from './hooks/usePresence'
 import { useVoicePresence } from './hooks/useVoicePresence'
 import type { VoicePresence } from './hooks/useVoicePresence'
-import type { Channel, Space } from './lib/types'
+import type { Channel, Profile, Space } from './lib/types'
 
 const Voice = lazy(() => import('./components/Voice').then((module) => ({ default: module.Voice })))
 
 function Workspace({ session }: { session: Session }) {
+  const dialogs = useDialogs()
+  const [description, setDescription] = useState('')
+  const [restricted, setRestricted] = useState(false)
+  const [invitedFriends, setInvitedFriends] = useState<string[]>([])
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null)
+  const [viewProfile, setViewProfile] = useState<Profile | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('orbita:channel-groups') || '{}')
+    } catch {
+      return {}
+    }
+  })
   const [error, setError] = useState(''),
     [modal, setModal] = useState<string | null>(null),
     [serverId, setServerId] = useState(''),
@@ -70,6 +91,18 @@ function Workspace({ session }: { session: Session }) {
   }, [])
   const voiceRosters = useVoicePresence(data.channels, session.user.id, callPresence)
   const currentServer = data.servers.find((s) => s.id === serverId)
+  const friendIds = data.friends
+    .filter((f) => f.status === 'accepted')
+    .map((f) => (f.requester_id === session.user.id ? f.addressee_id : f.requester_id))
+  const friendProfiles = data.profiles.filter((p) => friendIds.includes(p.id))
+  const conversationName = (id: string, fallback: string) => {
+    const members = data.dmMembers.filter((m) => m.conversation_id === id)
+    return members.length === 2
+      ? data.profiles.find(
+          (p) => p.id === members.find((m) => m.user_id !== session.user.id)?.user_id,
+        )?.display_name || fallback
+      : fallback
+  }
   const serverChannels = data.channels.filter((c) => c.server_id === serverId)
   const selectedChannel =
     selection?.kind === 'channel' ? data.channels.find((c) => c.id === selection.id) : null
@@ -84,7 +117,18 @@ function Workspace({ session }: { session: Session }) {
           topic: selectedChannel.topic,
         }
       : selectedDm
-        ? { id: selectedDm.id, kind: 'dm', name: selectedDm.name }
+        ? {
+            id: selectedDm.canonical_id || selectedDm.id,
+            kind: 'dm',
+            name: conversationName(selectedDm.canonical_id || selectedDm.id, selectedDm.name),
+            conversationIds: data.conversations
+              .filter(
+                (c) =>
+                  c.id === (selectedDm.canonical_id || selectedDm.id) ||
+                  c.canonical_id === (selectedDm.canonical_id || selectedDm.id),
+              )
+              .map((c) => c.id),
+          }
         : null
   const online = usePresence(currentServer ? `server:${currentServer.id}` : null, data.me)
   const memberIds = data.members.filter((m) => m.server_id === serverId).map((m) => m.user_id)
@@ -92,7 +136,28 @@ function Workspace({ session }: { session: Session }) {
     .filter((p) => memberIds.includes(p.id))
     .sort((a, b) => Number(online.includes(b.id)) - Number(online.includes(a.id)))
   const owner = currentServer?.owner_id === session.user.id
+  const manager =
+    owner ||
+    data.members.some(
+      (m) => m.server_id === serverId && m.user_id === session.user.id && m.access_role === 'admin',
+    )
+  const canManageChannel = (id: string) =>
+    manager ||
+    data.channelMembers.some(
+      (m) =>
+        m.channel_id === id &&
+        m.user_id === session.user.id &&
+        m.status === 'accepted' &&
+        m.role === 'moderator',
+    )
   const leave = useCallback(() => setVoice(null), [])
+  useEffect(() => {
+    try {
+      localStorage.setItem('orbita:channel-groups', JSON.stringify(collapsed))
+    } catch {
+      /* Optional preference. */
+    }
+  }, [collapsed])
   useEffect(() => {
     const openInvite = () => {
       const code = pendingInvitation()
@@ -161,15 +226,15 @@ function Workspace({ session }: { session: Session }) {
     setBusy(true)
     try {
       if (modal === 'server') {
-        const server = check(
-          await db()
-            .from('servers')
-            .insert({ owner_id: session.user.id, name: name.trim() })
-            .select()
-            .single(),
+        const id = check(
+          await db().rpc('create_community', {
+            title: name.trim(),
+            description: description.trim(),
+            people: invitedFriends,
+          }),
         )
         await data.refresh()
-        setServerId(server.id)
+        setServerId(id)
         setSelection(null)
       }
       if (modal === 'join') {
@@ -183,15 +248,18 @@ function Workspace({ session }: { session: Session }) {
         window.history.replaceState(null, '', '#/')
       }
       if (modal === 'channel') {
-        const channel = check(
-          await db()
-            .from('channels')
-            .insert({ server_id: serverId, name: name.trim(), kind })
-            .select()
-            .single(),
+        const id = check(
+          await db().rpc('create_community', {
+            title: name.trim(),
+            description: description.trim(),
+            people: invitedFriends,
+            s: serverId,
+            channel_kind: kind,
+            restricted,
+          }),
         )
         await data.refresh()
-        select('channel', channel.id)
+        select('channel', id)
       }
       setModal(null)
       setMobile(false)
@@ -204,6 +272,9 @@ function Workspace({ session }: { session: Session }) {
   }
   function openModal(value: string) {
     setName('')
+    setDescription('')
+    setRestricted(false)
+    setInvitedFriends([])
     setModal(value)
     setMobile(false)
   }
@@ -238,6 +309,7 @@ function Workspace({ session }: { session: Session }) {
             key={s.id}
             className={`server-icon color-${i % 4} ${serverId === s.id ? 'active' : ''}`}
             title={s.name}
+            aria-label={s.name}
             onClick={() => chooseServer(s.id)}
           >
             <ServerLogo server={s} />
@@ -257,7 +329,7 @@ function Workspace({ session }: { session: Session }) {
           {currentServer ? (
             <>
               <strong>{currentServer.name}</strong>
-              {owner && (
+              {manager && (
                 <IconButton label="Gerenciar servidor" onClick={() => setModal('admin')}>
                   <SettingsIcon size={18} />
                 </IconButton>
@@ -275,12 +347,17 @@ function Workspace({ session }: { session: Session }) {
           </IconButton>
         </header>
         <div className="sidebar-content">
-          {currentServer && owner && (
+          {currentServer && manager && (
             <button className="sidebar-invite" onClick={() => openModal('invite')}>
               <UserPlus size={18} />
               <span>Adicionar membros</span>
             </button>
           )}
+          <button className="sidebar-link" onClick={() => openModal('inbox')}>
+            <Mail size={19} />
+            <span>Convites</span>
+            {data.invites.length > 0 && <span className="count">{data.invites.length}</span>}
+          </button>
           <button
             className={`sidebar-link ${!serverId && !selection ? 'active' : ''}`}
             onClick={home}
@@ -298,11 +375,24 @@ function Workspace({ session }: { session: Session }) {
               {(['text', 'voice'] as const).map((type) => (
                 <div className="channel-group" key={type}>
                   <div className="section-label">
-                    <span>
-                      <ChevronDown size={12} />
+                    <button
+                      className="section-toggle"
+                      aria-expanded={!collapsed[`${serverId}:${type}`]}
+                      aria-controls={`channel-group-${type}`}
+                      onClick={() =>
+                        setCollapsed((old) => ({
+                          ...old,
+                          [`${serverId}:${type}`]: !old[`${serverId}:${type}`],
+                        }))
+                      }
+                    >
+                      <ChevronDown
+                        size={12}
+                        className={collapsed[`${serverId}:${type}`] ? 'collapsed' : ''}
+                      />
                       {type === 'text' ? 'CANAIS DE TEXTO' : 'CANAIS DE VOZ'}
-                    </span>
-                    {owner && (
+                    </button>
+                    {manager && (
                       <IconButton
                         label={`Criar canal de ${type === 'text' ? 'texto' : 'voz'}`}
                         onClick={() => {
@@ -314,58 +404,67 @@ function Workspace({ session }: { session: Session }) {
                       </IconButton>
                     )}
                   </div>
-                  {serverChannels
-                    .filter((c) => c.kind === type)
-                    .map((ch) => (
-                      <div className="sidebar-channel" key={ch.id}>
-                        <button
-                          className={`sidebar-link ${selection?.id === ch.id ? 'active' : ''}`}
-                          onClick={() => select('channel', ch.id)}
-                        >
-                          {type === 'text' ? <Hash size={19} /> : <Headphones size={18} />}
-                          <span>{ch.name}</span>
-                          {ch.is_private && <LockKeyhole size={12} />}
-                          {!!voiceRosters[ch.id]?.length && (
-                            <small
-                              className="voice-channel-count"
-                              aria-label={`${voiceRosters[ch.id].length} na chamada`}
-                            >
-                              {voiceRosters[ch.id].length}
-                            </small>
+                  <div id={`channel-group-${type}`} hidden={!!collapsed[`${serverId}:${type}`]}>
+                    {serverChannels
+                      .filter((c) => c.kind === type)
+                      .map((ch) => (
+                        <div className="sidebar-channel" key={ch.id}>
+                          <button
+                            className={`sidebar-link ${selection?.id === ch.id ? 'active' : ''}`}
+                            onClick={() => select('channel', ch.id)}
+                          >
+                            {type === 'text' ? <Hash size={19} /> : <Headphones size={18} />}
+                            <span>{ch.name}</span>
+                            {ch.is_private && <LockKeyhole size={12} />}
+                            {!!voiceRosters[ch.id]?.length && (
+                              <small
+                                className="voice-channel-count"
+                                aria-label={`${voiceRosters[ch.id].length} na chamada`}
+                              >
+                                {voiceRosters[ch.id].length}
+                              </small>
+                            )}
+                          </button>
+                          <IconButton
+                            className="channel-settings-button"
+                            label={`Configurações de ${ch.name}`}
+                            onClick={() => setEditingChannel(ch)}
+                          >
+                            <SettingsIcon size={15} />
+                          </IconButton>
+                          {type === 'voice' && !!voiceRosters[ch.id]?.length && (
+                            <ul className="voice-roster" aria-label={`Na chamada de ${ch.name}`}>
+                              {voiceRosters[ch.id].map((member) => {
+                                const person = data.profiles.find(
+                                  (profile) => profile.id === member.userId,
+                                )
+                                return (
+                                  <li key={member.userId}>
+                                    <button
+                                      className={member.speaking ? 'speaking' : ''}
+                                      onClick={() => select('channel', ch.id)}
+                                      title={`${person?.display_name || 'Membro'} · ${member.muted ? 'Microfone desligado' : 'Na chamada'}`}
+                                    >
+                                      <Avatar profile={person} small />
+                                      <span>{person?.display_name || 'Membro'}</span>
+                                      {member.screen && (
+                                        <MonitorUp size={13} aria-label="Transmitindo tela" />
+                                      )}
+                                      {member.camera && (
+                                        <Video size={13} aria-label="Câmera ligada" />
+                                      )}
+                                      {member.muted && (
+                                        <MicOff size={13} aria-label="Microfone desligado" />
+                                      )}
+                                    </button>
+                                  </li>
+                                )
+                              })}
+                            </ul>
                           )}
-                        </button>
-                        {type === 'voice' && !!voiceRosters[ch.id]?.length && (
-                          <ul className="voice-roster" aria-label={`Na chamada de ${ch.name}`}>
-                            {voiceRosters[ch.id].map((member) => {
-                              const person = data.profiles.find(
-                                (profile) => profile.id === member.userId,
-                              )
-                              return (
-                                <li key={member.userId}>
-                                  <button
-                                    className={member.speaking ? 'speaking' : ''}
-                                    onClick={() => select('channel', ch.id)}
-                                    title={`${person?.display_name || 'Membro'} · ${member.muted ? 'Microfone desligado' : 'Na chamada'}`}
-                                  >
-                                    <Avatar profile={person} small />
-                                    <span>{person?.display_name || 'Membro'}</span>
-                                    {member.screen && (
-                                      <MonitorUp size={13} aria-label="Transmitindo tela" />
-                                    )}
-                                    {member.camera && (
-                                      <Video size={13} aria-label="Câmera ligada" />
-                                    )}
-                                    {member.muted && (
-                                      <MicOff size={13} aria-label="Microfone desligado" />
-                                    )}
-                                  </button>
-                                </li>
-                              )
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      ))}
+                  </div>
                 </div>
               ))}
             </>
@@ -375,19 +474,23 @@ function Workspace({ session }: { session: Session }) {
                 <span>MENSAGENS DIRETAS</span>
                 <MessageCircle size={14} />
               </div>
-              {data.conversations.map((c) => (
-                <button
-                  className={`sidebar-link ${selection?.id === c.id ? 'active' : ''}`}
-                  key={c.id}
-                  onClick={() => {
-                    setServerId('')
-                    select('dm', c.id)
-                  }}
-                >
-                  <span className="dm-icon">{c.name.slice(0, 1).toUpperCase()}</span>
-                  <span>{c.name}</span>
-                </button>
-              ))}
+              {data.conversations
+                .filter((c) => !c.canonical_id)
+                .map((c) => (
+                  <button
+                    className={`sidebar-link ${selection?.id === c.id ? 'active' : ''}`}
+                    key={c.id}
+                    onClick={() => {
+                      setServerId('')
+                      select('dm', c.id)
+                    }}
+                  >
+                    <span className="dm-icon">
+                      {conversationName(c.id, c.name).slice(0, 1).toUpperCase()}
+                    </span>
+                    <span>{conversationName(c.id, c.name)}</span>
+                  </button>
+                ))}
               {!data.conversations.length && (
                 <p className="sidebar-help">
                   Suas conversas vão morar aqui. Adicione um amigo para começar.
@@ -405,6 +508,39 @@ function Workspace({ session }: { session: Session }) {
             </>
           )}
         </div>
+        {currentServer && !owner && (
+          <button
+            className="sidebar-leave"
+            onClick={async () => {
+              if (
+                await dialogs.confirm({
+                  title: `Sair de ${currentServer.name}?`,
+                  message: 'Você perderá acesso aos canais. Para voltar, aceite um novo convite.',
+                  confirm: 'Sair do servidor',
+                  danger: true,
+                })
+              ) {
+                try {
+                  check(
+                    await db().rpc('manage_membership', {
+                      s: serverId,
+                      target_user: session.user.id,
+                      action: 'leave',
+                    }),
+                  )
+                  if (voice?.server_id === serverId) leave()
+                  await data.refresh()
+                  home()
+                } catch (e) {
+                  report(errorText(e))
+                }
+              }
+            }}
+          >
+            <LogOut size={16} />
+            Sair do servidor
+          </button>
+        )}
         {voice && (
           <div className="voice-indicator">
             <button
@@ -468,17 +604,17 @@ function Workspace({ session }: { session: Session }) {
               <Users size={21} />
             )}
           </span>
-          <strong>{selectedChannel?.name || selectedDm?.name || 'Amigos'}</strong>
+          <strong>
+            {selectedChannel?.name ||
+              (selectedDm &&
+                conversationName(selectedDm.canonical_id || selectedDm.id, selectedDm.name)) ||
+              'Amigos'}
+          </strong>
           <span className="header-divider" />
           <span className="header-topic">
             {selectedChannel?.topic || 'Seu ponto de encontro, todos os dias.'}
           </span>
           <div className="header-actions">
-            {owner && (
-              <IconButton label="Convites e permissões" onClick={() => setModal('admin')}>
-                <SettingsIcon size={19} />
-              </IconButton>
-            )}
             {currentServer && (
               <IconButton
                 className={`members-toggle ${showMembers ? 'active' : ''}`}
@@ -495,6 +631,18 @@ function Workspace({ session }: { session: Session }) {
         </header>
         <div className="workspace-body">
           <div className="main-content">
+            {!data.communityReady && (
+              <div className="history-context" role="status">
+                Os novos convites e cargos estão aguardando a atualização do serviço. Seus dados
+                continuam disponíveis.
+                <button
+                  className="secondary"
+                  onClick={() => void data.refresh().catch((e) => report(errorText(e)))}
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
             {data.loading ? (
               <Empty icon={<Orbit className="spin" />} title="Entrando na sua órbita…" />
             ) : space ? (
@@ -504,14 +652,23 @@ function Workspace({ session }: { session: Session }) {
                 userId={session.user.id}
                 profiles={data.profiles}
                 report={report}
+                openProfile={setViewProfile}
               />
             ) : selectedChannel?.kind === 'voice' && !voiceVisible ? (
               <Empty icon={<Headphones size={35} />} title={selectedChannel.name}>
                 Um lugar para conversar sem pressa.
                 <button
                   className="primary"
-                  onClick={() => {
-                    if (voice && !window.confirm('Sair da sala atual e abrir esta?')) return
+                  onClick={async () => {
+                    if (
+                      voice &&
+                      !(await dialogs.confirm({
+                        title: 'Trocar de chamada?',
+                        message: 'Você sairá da sala atual para abrir esta.',
+                        confirm: 'Trocar de sala',
+                      }))
+                    )
+                      return
                     setVoice(selectedChannel)
                   }}
                 >
@@ -534,7 +691,7 @@ function Workspace({ session }: { session: Session }) {
             ) : !voiceVisible ? (
               <Empty icon={<Hash size={35} />} title="Escolha onde a conversa acontece">
                 Selecione um canal na barra lateral.
-                {owner && (
+                {manager && (
                   <button
                     className="secondary"
                     onClick={() => {
@@ -577,7 +734,11 @@ function Workspace({ session }: { session: Session }) {
                 </IconButton>
               </div>
               {people.map((p) => (
-                <div className={`member ${online.includes(p.id) ? '' : 'is-offline'}`} key={p.id}>
+                <button
+                  className={`member member-profile ${online.includes(p.id) ? '' : 'is-offline'}`}
+                  key={p.id}
+                  onClick={() => setViewProfile(p)}
+                >
                   <Avatar profile={p} online={online.includes(p.id)} small />
                   <div>
                     <strong>
@@ -594,7 +755,7 @@ function Workspace({ session }: { session: Session }) {
                         : 'Offline'}
                     </small>
                   </div>
-                </div>
+                </button>
               ))}
               <div className="members-footer">
                 <Orbit size={20} />
@@ -676,17 +837,88 @@ function Workspace({ session }: { session: Session }) {
           refresh={data.refresh}
           close={() => setModal(null)}
           report={report}
+          members={data.members.filter((m) => m.server_id === serverId)}
+          userId={session.user.id}
         />
       )}
-      {modal === 'invite' && currentServer && owner && (
+      {modal === 'admin' && currentServer && manager && !owner && (
+        <Modal title={`Gerenciar ${currentServer.name}`} close={() => setModal(null)}>
+          <MemberManager
+            server={currentServer}
+            people={people}
+            members={data.members.filter((m) => m.server_id === serverId)}
+            userId={session.user.id}
+            refresh={data.refresh}
+            report={report}
+          />
+        </Modal>
+      )}
+      {modal === 'invite' && currentServer && manager && (
         <Modal title={`Adicionar membros a ${currentServer.name}`} close={() => setModal(null)}>
           <ServerMembers
             server={currentServer}
             people={people}
             refresh={data.refresh}
             report={report}
+            canCreateLinks={owner}
           />
         </Modal>
+      )}
+      {modal === 'inbox' && (
+        <InviteInbox
+          invites={data.invites}
+          profiles={data.profiles}
+          refresh={data.refresh}
+          report={report}
+          close={() => setModal(null)}
+          enter={(s, c) => {
+            setServerId(s)
+            if (c) select('channel', c)
+            else setSelection(null)
+          }}
+        />
+      )}
+      {editingChannel && currentServer && (
+        <ChannelSettings
+          channel={editingChannel}
+          server={currentServer}
+          userId={session.user.id}
+          canManage={canManageChannel(editingChannel.id)}
+          canPromote={manager}
+          profiles={data.profiles}
+          friends={friendProfiles}
+          refresh={data.refresh}
+          close={() => setEditingChannel(null)}
+          report={report}
+        />
+      )}
+      {viewProfile && (
+        <ProfileCard
+          profile={viewProfile}
+          close={() => setViewProfile(null)}
+          message={
+            friendIds.includes(viewProfile.id)
+              ? () => {
+                  void (async () => {
+                    try {
+                      const id = check(
+                        await db().rpc('create_dm', {
+                          people: [viewProfile.id],
+                          title: viewProfile.display_name,
+                        }),
+                      )
+                      await data.refresh()
+                      setViewProfile(null)
+                      setServerId('')
+                      select('dm', id)
+                    } catch (e) {
+                      report(errorText(e))
+                    }
+                  })()
+                }
+              : undefined
+          }
+        />
       )}
       {['server', 'join', 'channel'].includes(modal || '') && (
         <Modal
@@ -738,6 +970,34 @@ function Workspace({ session }: { session: Session }) {
                   <option value="voice">Voz</option>
                 </select>
               </label>
+            )}
+            {modal !== 'join' && (
+              <>
+                <label>
+                  {modal === 'channel' ? 'Descrição do canal' : 'Descrição do servidor'}
+                  <textarea
+                    maxLength={modal === 'channel' ? 300 : 500}
+                    placeholder="Sobre o que vocês vão conversar?"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </label>
+                {modal === 'channel' && (
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={restricted}
+                      onChange={(e) => setRestricted(e.target.checked)}
+                    />
+                    Canal privado · acesso por convite ou cargo
+                  </label>
+                )}
+                <FriendPicker
+                  people={friendProfiles}
+                  selected={invitedFriends}
+                  change={setInvitedFriends}
+                />
+              </>
             )}
             <button className="primary" disabled={busy}>
               {busy ? 'Salvando…' : modal === 'join' ? 'Entrar no servidor' : 'Criar'}

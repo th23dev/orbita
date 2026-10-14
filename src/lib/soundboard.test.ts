@@ -103,4 +103,50 @@ describe('Soundboard track lifecycle', () => {
     expect(participant.publishTrack).toHaveBeenCalledOnce()
     await board.dispose()
   })
+  it('resumes audio on the click before a slow publication completes', async () => {
+    const { board, participant } = create()
+    let publish!: () => void
+    participant.publishTrack.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          publish = resolve
+        }),
+    )
+    const playback = board.play(async () => new ArrayBuffer(4), 0.5)
+    expect(AudioContextStub.current.resume).toHaveBeenCalled()
+    await vi.waitFor(() => expect(participant.publishTrack).toHaveBeenCalledOnce())
+    expect(AudioContextStub.current.source.start).not.toHaveBeenCalled()
+    publish()
+    await playback
+    expect(AudioContextStub.current.source.start).toHaveBeenCalledOnce()
+    await board.dispose()
+  })
+  it('allows a local preview before joining a room', async () => {
+    const board = new Soundboard()
+    await board.play(async () => new ArrayBuffer(4), 0.6)
+    expect(AudioContextStub.current.source.start).toHaveBeenCalledOnce()
+    expect(AudioContextStub.current.gain.connect).toHaveBeenCalledWith(
+      AudioContextStub.current.destination,
+    )
+    await board.dispose()
+  })
+  it('can retry after publication failed instead of caching a rejected promise', async () => {
+    const { board, participant } = create()
+    participant.publishTrack.mockRejectedValueOnce(new Error('temporary failure'))
+    await expect(board.play(async () => new ArrayBuffer(4), 0.5)).rejects.toThrow(
+      'temporary failure',
+    )
+    await board.play(async () => new ArrayBuffer(4), 0.5)
+    expect(participant.publishTrack).toHaveBeenCalledTimes(2)
+    expect(AudioContextStub.current.source.start).toHaveBeenCalledOnce()
+    await board.dispose()
+  })
+  it('always releases local media if unpublish fails after disconnection', async () => {
+    const { board, participant } = create()
+    await board.play(async () => new ArrayBuffer(4), 0.5)
+    participant.unpublishTrack.mockRejectedValueOnce(new Error('disconnected'))
+    await expect(board.dispose()).rejects.toThrow('disconnected')
+    expect(mediaTrack.stop).toHaveBeenCalled()
+    expect(AudioContextStub.current.close).toHaveBeenCalledOnce()
+  })
 })

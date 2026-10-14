@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ConnectionState, Room, RoomEvent, Track, createLocalVideoTrack } from 'livekit-client'
+import {
+  ConnectionState,
+  DisconnectReason,
+  Room,
+  RoomEvent,
+  Track,
+  createLocalVideoTrack,
+} from 'livekit-client'
 import type { Participant, RemoteParticipant, LocalVideoTrack } from 'livekit-client'
 import { FunctionsHttpError, FunctionsFetchError } from '@supabase/supabase-js'
 import {
@@ -26,6 +33,8 @@ import {
 import { check, db, errorText } from '../lib/supabase'
 import { addSound, deleteSound } from '../lib/files'
 import { Soundboard } from '../lib/soundboard'
+import { playCallSound, unlockCallSounds } from '../lib/call-sounds'
+import { useDialogs } from './Dialogs'
 import type { Channel, Profile, Sound } from '../lib/types'
 import { Avatar, IconButton } from './ui'
 import { featuredStream } from '../lib/call-layout'
@@ -82,8 +91,9 @@ export function Voice({
   leave: () => void
   onPresenceChange: (presence: VoicePresence | null) => void
 }) {
+  const dialogs = useDialogs()
   const [room] = useState(
-    () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
+    () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false }),
   )
   const [state, setState] = useState<ConnectionState>(ConnectionState.Disconnected),
     [joining, setJoining] = useState(false),
@@ -101,6 +111,11 @@ export function Voice({
   const [qualityBusy, setQualityBusy] = useState(false)
   const [selectedStream, setSelectedStream] = useState<string | null>(null)
   const [showParticipants, setShowParticipants] = useState(true)
+  const [playingSound, setPlayingSound] = useState<string | null>(null)
+  const hadJoined = useRef(false)
+  const connecting = useRef(false)
+  const microphoneWanted = useRef(true)
+  const reconnect = useRef<() => Promise<void>>(async () => {})
   const previewCameraRef = useRef<LocalVideoTrack | null>(null)
   const panel = useRef<HTMLElement>(null)
   const soundboardToggle = useRef<HTMLButtonElement>(null)
@@ -142,6 +157,8 @@ export function Voice({
       const connected =
         room.state === ConnectionState.Connected || room.state === ConnectionState.Reconnecting
       const local = room.localParticipant
+      if (room.state === ConnectionState.Connected)
+        microphoneWanted.current = local.isMicrophoneEnabled
       onPresenceChange(
         connected
           ? {
@@ -156,6 +173,8 @@ export function Voice({
     }
     room.on(RoomEvent.ConnectionStateChanged, setState)
     room.on(RoomEvent.ConnectionStateChanged, announce)
+    room.on(RoomEvent.ParticipantConnected, () => playCallSound('join'))
+    room.on(RoomEvent.ParticipantDisconnected, () => playCallSound('leave'))
     for (const event of [
       RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected,
@@ -193,7 +212,9 @@ export function Voice({
       previewCameraRef.current?.stop()
       previewCameraRef.current = null
       room.removeAllListeners()
-      void board.current?.dispose()
+      if (hadJoined.current) playCallSound('leave')
+      hadJoined.current = false
+      void board.current?.dispose().catch(() => {})
       void room.disconnect()
       void db().removeChannel(sub)
     }
@@ -208,15 +229,81 @@ export function Voice({
         .eq('id', channel.id)
         .eq('archived', false)
         .maybeSingle()
-      if (error || !data) {
+      // A suspended tab or temporary fetch failure is not a permission revocation.
+      if (!mounted.current || error) return
+      if (!data) {
+        hadJoined.current = false
         await room.disconnect()
         report('Acesso ao canal encerrado.')
         leave()
       }
     }
-    const timer = setInterval(() => void checkAccess(), 15000)
-    return () => clearInterval(timer)
+    const verify = () => {
+      if (!document.hidden && navigator.onLine) void checkAccess().catch(() => {})
+    }
+    const timer = setInterval(verify, 15000)
+    document.addEventListener('visibilitychange', verify)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', verify)
+    }
   }, [joined, room, channel.id, report, leave])
+  useEffect(() => {
+    const resume = () => {
+      if (document.hidden || !navigator.onLine || !hadJoined.current || connecting.current) return
+      if (room.state === ConnectionState.Disconnected)
+        void reconnect.current().catch((e) => report(errorText(e)))
+      else if (room.state === ConnectionState.Connected) void room.startAudio().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', resume)
+    window.addEventListener('pageshow', resume)
+    window.addEventListener('online', resume)
+    const disconnected = (reason?: DisconnectReason) => {
+      if (
+        reason !== undefined &&
+        [
+          DisconnectReason.CLIENT_INITIATED,
+          DisconnectReason.PARTICIPANT_REMOVED,
+          DisconnectReason.ROOM_DELETED,
+          DisconnectReason.DUPLICATE_IDENTITY,
+        ].includes(reason)
+      ) {
+        hadJoined.current = false
+        setJoined(false)
+        return
+      }
+      resume()
+    }
+    room.on(RoomEvent.Disconnected, disconnected)
+    return () => {
+      document.removeEventListener('visibilitychange', resume)
+      window.removeEventListener('pageshow', resume)
+      window.removeEventListener('online', resume)
+      room.off(RoomEvent.Disconnected, disconnected)
+    }
+  }, [room, report])
+  useEffect(() => {
+    if (!joined || !('mediaSession' in navigator)) return
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: channel.name,
+      artist: 'Chamada na Órbita',
+    })
+    navigator.mediaSession.playbackState = 'playing'
+    try {
+      navigator.mediaSession.setActionHandler('stop', leave)
+    } catch {
+      /* Unsupported on some browsers. */
+    }
+    return () => {
+      navigator.mediaSession.metadata = null
+      navigator.mediaSession.playbackState = 'none'
+      try {
+        navigator.mediaSession.setActionHandler('stop', null)
+      } catch {
+        /* Optional action. */
+      }
+    }
+  }, [joined, channel.name, leave])
   async function togglePreviewCamera() {
     if (previewCameraRef.current) {
       previewCameraRef.current.stop()
@@ -260,6 +347,11 @@ export function Voice({
     }
   }
   async function connect() {
+    if (connecting.current) return
+    connecting.current = true
+    unlockCallSounds()
+    const resuming = hadJoined.current
+    const enableMicrophone = resuming ? microphoneWanted.current : startWithMic
     setJoining(true)
     try {
       const requestToken = () =>
@@ -296,9 +388,12 @@ export function Voice({
         await room.disconnect()
         return
       }
+      await board.current?.dispose().catch(() => {})
       board.current = new Soundboard(room)
+      hadJoined.current = true
+      if (!resuming) playCallSound('join')
       setJoined(true)
-      await room.startAudio()
+      await room.startAudio().catch(() => {})
       if (!mounted.current) return
       if (previewCameraRef.current) {
         const track = previewCameraRef.current
@@ -312,16 +407,18 @@ export function Voice({
         }
       }
       try {
-        if (startWithMic) await room.localParticipant.setMicrophoneEnabled(true)
+        if (enableMicrophone) await room.localParticipant.setMicrophoneEnabled(true)
       } catch {
         report(
           'Você entrou com o microfone desligado. Permita o acesso ao microfone no navegador para falar.',
         )
       }
     } finally {
+      connecting.current = false
       setJoining(false)
     }
   }
+  reconnect.current = connect
   const people: Participant[] = joined
     ? [room.localParticipant, ...room.remoteParticipants.values()]
     : []
@@ -615,6 +712,12 @@ export function Voice({
           Clique para ativar o áudio
         </button>
       )}
+      {joined && state === ConnectionState.Disconnected && (
+        <button className="call-audio-notice" disabled={joining} onClick={() => void run(connect)}>
+          <Signal size={17} />{' '}
+          {joining ? 'Reconectando…' : 'Conexão interrompida · Tentar reconectar'}
+        </button>
+      )}
       <footer className="call-footer">
         {!joined ? (
           <div className="call-join-row">
@@ -854,25 +957,42 @@ export function Voice({
             <div className="sound-tile" key={sound.id}>
               <button
                 className="sound-play"
-                disabled={!joined || state !== ConnectionState.Connected}
+                disabled={playingSound !== null || (joined && state !== ConnectionState.Connected)}
+                aria-label={`${joined ? 'Tocar' : 'Prévia de'} ${sound.name}`}
                 onClick={() =>
                   void run(async () => {
-                    await board.current!.play(async () => {
-                      const blob = check(await db().storage.from('sounds').download(sound.path))
-                      return blob.arrayBuffer()
-                    }, volume)
+                    setPlayingSound(sound.id)
+                    board.current ??= new Soundboard(joined ? room : undefined)
+                    try {
+                      await board.current.play(async () => {
+                        const blob = check(await db().storage.from('sounds').download(sound.path))
+                        return blob.arrayBuffer()
+                      }, volume)
+                    } finally {
+                      setPlayingSound(null)
+                    }
                   })
                 }
               >
                 <AudioLines size={25} />
                 <strong>{sound.name}</strong>
-                <small>{String(i + 1).padStart(2, '0')}</small>
+                <small>
+                  {playingSound === sound.id
+                    ? 'Carregando…'
+                    : joined
+                      ? String(i + 1).padStart(2, '0')
+                      : 'Ouvir prévia'}
+                </small>
               </button>
               <div className="sound-actions">
                 <IconButton
                   label={`Renomear ${sound.name}`}
-                  onClick={() => {
-                    const name = window.prompt('Nome do som', sound.name)
+                  onClick={async () => {
+                    const name = await dialogs.prompt({
+                      title: 'Renomear som',
+                      value: sound.name,
+                      message: 'Escolha um nome fácil de encontrar na sua biblioteca.',
+                    })
                     if (name?.trim())
                       void run(async () => {
                         check(
@@ -889,8 +1009,15 @@ export function Voice({
                 </IconButton>
                 <IconButton
                   label={`Excluir ${sound.name}`}
-                  onClick={() => {
-                    if (window.confirm(`Excluir ${sound.name}?`))
+                  onClick={async () => {
+                    if (
+                      await dialogs.confirm({
+                        title: 'Excluir som?',
+                        message: `“${sound.name}” será removido da sua biblioteca.`,
+                        confirm: 'Excluir',
+                        danger: true,
+                      })
+                    )
                       void run(async () => {
                         await deleteSound(sound)
                         await loadSounds()
@@ -905,7 +1032,8 @@ export function Voice({
         </div>
         {!sounds.length && (
           <p className="sound-empty">
-            Sua biblioteca está esperando o primeiro som. Adicione MP3, WAV ou OGG de até 10 MB.
+            Sua biblioteca está esperando o primeiro som. Adicione MP3, WAV ou OGG de até 10 MB e 30
+            segundos.
           </p>
         )}
         <footer>

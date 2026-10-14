@@ -3,6 +3,8 @@ import { Check, MessageCircle, UserPlus, Users, X } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import type { Friendship, Profile } from '../lib/types'
 import { Avatar, Empty, IconButton } from './ui'
+import { ProfileCard, statusLabel } from './ProfileCard'
+import { useDialogs } from './Dialogs'
 
 export function Friends({
   userId,
@@ -19,6 +21,8 @@ export function Friends({
   openDm: (id: string) => void
   report: (s: string) => void
 }) {
+  const dialogs = useDialogs()
+  const [viewProfile, setViewProfile] = useState<Profile | null>(null)
   const [username, setUsername] = useState(''),
     [tab, setTab] = useState('all'),
     [selected, setSelected] = useState<string[]>([]),
@@ -123,16 +127,26 @@ export function Friends({
                   }
                 />
               )}
-              <Avatar profile={p} />
+              <button
+                className="profile-trigger"
+                aria-label={`Ver perfil de ${p?.display_name || 'membro'}`}
+                onClick={() => p && setViewProfile(p)}
+              >
+                <Avatar profile={p} online={p?.status !== 'offline'} />
+              </button>
               <div>
-                <strong>{p?.display_name || 'Membro'}</strong>
+                <button className="profile-trigger" onClick={() => p && setViewProfile(p)}>
+                  <strong>{p?.display_name || 'Membro'}</strong>
+                </button>
                 <small>
                   {p ? `@${p.username}` : ''}
                   {f.status === 'pending'
                     ? f.requester_id === userId
                       ? ' · Convite enviado'
                       : ' · Quer se conectar'
-                    : ''}
+                    : p
+                      ? ` · ${statusLabel[p.status]}`
+                      : ''}
                 </small>
               </div>
               {f.status === 'accepted' ? (
@@ -168,8 +182,17 @@ export function Friends({
               <IconButton
                 label={f.status === 'accepted' ? 'Remover amizade' : 'Cancelar solicitação'}
                 disabled={busy}
-                onClick={() => {
-                  if (f.status === 'pending' || window.confirm('Remover esta amizade?'))
+                onClick={async () => {
+                  if (
+                    f.status === 'pending' ||
+                    (await dialogs.confirm({
+                      title: 'Remover amizade?',
+                      message:
+                        'Vocês precisarão de uma nova solicitação para se conectar novamente.',
+                      confirm: 'Remover',
+                      danger: true,
+                    }))
+                  )
                     void run(async () => {
                       check(await db().from('friendships').delete().eq('id', f.id))
                       setSelected((old) => old.filter((x) => x !== id))
@@ -182,6 +205,18 @@ export function Friends({
           )
         })}
       </div>
+      {viewProfile && (
+        <ProfileCard
+          profile={viewProfile}
+          close={() => setViewProfile(null)}
+          message={() =>
+            void run(async () => {
+              await create([viewProfile.id], viewProfile.display_name)
+              setViewProfile(null)
+            })
+          }
+        />
+      )}
       {selected.length > 0 && (
         <form
           className="group-form"

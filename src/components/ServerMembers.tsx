@@ -12,11 +12,13 @@ export function ServerMembers({
   people,
   refresh,
   report,
+  canCreateLinks = true,
 }: {
   server: Server
   people: Profile[]
   refresh: () => Promise<void>
   report: (message: string) => void
+  canCreateLinks?: boolean
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Profile[]>([])
@@ -97,10 +99,10 @@ export function ServerMembers({
     <div className="server-members-manager">
       <section>
         <h3>
-          <UserPlus size={18} /> Adicionar por nome
+          <UserPlus size={18} /> Convidar por nome
         </h3>
         <p className="muted">
-          Encontre uma conta da Órbita pelo nome ou @usuário e adicione ao servidor.
+          Encontre uma pessoa pelo nome ou @usuário. Ela precisa aceitar o convite antes de entrar.
         </p>
         <label className="member-search">
           <Search size={18} />
@@ -137,15 +139,16 @@ export function ServerMembers({
                     aria-label={
                       member
                         ? `${person.display_name} já é membro`
-                        : `Adicionar ${person.display_name} ao servidor`
+                        : `Convidar ${person.display_name} ao servidor`
                     }
                     onClick={() =>
                       void run(async () => {
-                        const { error } = await db()
-                          .from('server_members')
-                          .insert({ server_id: server.id, user_id: person.id })
-                        if (error && error.code !== '23505') throw error
-                        setNotice(`${person.display_name} agora faz parte de ${server.name}.`)
+                        check(
+                          await db().rpc('invite_member', { s: server.id, target_user: person.id }),
+                        )
+                        setNotice(
+                          `Convite enviado para ${person.display_name}. Aguardando aceitação.`,
+                        )
                       })
                     }
                   >
@@ -155,7 +158,7 @@ export function ServerMembers({
                       </>
                     ) : (
                       <>
-                        <UserPlus size={16} /> Adicionar
+                        <UserPlus size={16} /> Convidar
                       </>
                     )}
                   </button>
@@ -165,100 +168,103 @@ export function ServerMembers({
           )}
         </div>
       </section>
-      <section>
-        <h3>
-          <Link size={18} /> Convidar por link
-        </h3>
-        <p className="muted">
-          Compartilhe um link por onde preferir. Cada convite vale por 7 dias e permite 25 entradas.
-        </p>
-        <button
-          className="primary"
-          disabled={busy || loading}
-          onClick={() =>
-            void run(async () => {
-              check(
-                await db()
-                  .from('invitations')
-                  .insert({ server_id: server.id, created_by: server.owner_id }),
-              )
-              setNotice('Link criado. Copie ou compartilhe abaixo.')
-            })
-          }
-        >
-          <Link size={17} /> Criar link de convite
-        </button>
-        <div className="invitation-list">
-          {invites.map((invite) => {
-            const expired =
-              Date.parse(invite.expires_at) <= Date.now() || invite.uses >= invite.max_uses
-            const url = invitationLink(invite.code)
-            return (
-              <div className={`invitation-card ${expired ? 'expired' : ''}`} key={invite.id}>
-                <input
-                  readOnly
-                  aria-label="Link de convite"
-                  value={url}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <div className="invitation-actions">
-                  <small>
-                    {expired
-                      ? 'Convite encerrado'
-                      : `${invite.uses}/${invite.max_uses} entradas · até ${new Date(invite.expires_at).toLocaleDateString('pt-BR')}`}
-                  </small>
-                  <IconButton
-                    label="Copiar link de convite"
-                    disabled={expired || busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await navigator.clipboard.writeText(url)
-                        setNotice('Link copiado!')
-                      })
-                    }
-                  >
-                    <Copy size={18} />
-                  </IconButton>
-                  {typeof navigator.share === 'function' && (
+      {canCreateLinks && (
+        <section>
+          <h3>
+            <Link size={18} /> Convidar por link
+          </h3>
+          <p className="muted">
+            Compartilhe um link por onde preferir. Cada convite vale por 7 dias e permite 25
+            entradas.
+          </p>
+          <button
+            className="primary"
+            disabled={busy || loading}
+            onClick={() =>
+              void run(async () => {
+                check(
+                  await db()
+                    .from('invitations')
+                    .insert({ server_id: server.id, created_by: server.owner_id }),
+                )
+                setNotice('Link criado. Copie ou compartilhe abaixo.')
+              })
+            }
+          >
+            <Link size={17} /> Criar link de convite
+          </button>
+          <div className="invitation-list">
+            {invites.map((invite) => {
+              const expired =
+                Date.parse(invite.expires_at) <= Date.now() || invite.uses >= invite.max_uses
+              const url = invitationLink(invite.code)
+              return (
+                <div className={`invitation-card ${expired ? 'expired' : ''}`} key={invite.id}>
+                  <input
+                    readOnly
+                    aria-label="Link de convite"
+                    value={url}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <div className="invitation-actions">
+                    <small>
+                      {expired
+                        ? 'Convite encerrado'
+                        : `${invite.uses}/${invite.max_uses} entradas · até ${new Date(invite.expires_at).toLocaleDateString('pt-BR')}`}
+                    </small>
                     <IconButton
-                      label="Compartilhar convite"
+                      label="Copiar link de convite"
                       disabled={expired || busy}
                       onClick={() =>
                         void run(async () => {
-                          try {
-                            await navigator.share({
-                              title: `Entre em ${server.name}`,
-                              text: 'Vamos conversar na Órbita?',
-                              url,
-                            })
-                          } catch (error) {
-                            if (!(error instanceof DOMException && error.name === 'AbortError'))
-                              throw error
-                          }
+                          await navigator.clipboard.writeText(url)
+                          setNotice('Link copiado!')
                         })
                       }
                     >
-                      <Share2 size={18} />
+                      <Copy size={18} />
                     </IconButton>
-                  )}
-                  <IconButton
-                    label="Revogar convite"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        check(await db().from('invitations').delete().eq('id', invite.id))
-                        setNotice('Convite revogado.')
-                      })
-                    }
-                  >
-                    <Trash2 size={18} />
-                  </IconButton>
+                    {typeof navigator.share === 'function' && (
+                      <IconButton
+                        label="Compartilhar convite"
+                        disabled={expired || busy}
+                        onClick={() =>
+                          void run(async () => {
+                            try {
+                              await navigator.share({
+                                title: `Entre em ${server.name}`,
+                                text: 'Vamos conversar na Órbita?',
+                                url,
+                              })
+                            } catch (error) {
+                              if (!(error instanceof DOMException && error.name === 'AbortError'))
+                                throw error
+                            }
+                          })
+                        }
+                      >
+                        <Share2 size={18} />
+                      </IconButton>
+                    )}
+                    <IconButton
+                      label="Revogar convite"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          check(await db().from('invitations').delete().eq('id', invite.id))
+                          setNotice('Convite revogado.')
+                        })
+                      }
+                    >
+                      <Trash2 size={18} />
+                    </IconButton>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
+              )
+            })}
+          </div>
+        </section>
+      )}
       {notice && (
         <p className="member-notice" role="status">
           <Check size={16} />

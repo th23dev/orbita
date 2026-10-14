@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Shield, Trash2 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
-import type { Channel, Profile, Role, Server } from '../lib/types'
+import type { Channel, Profile, Role, Server, ServerMember } from '../lib/types'
 import { IconButton, Modal } from './ui'
 import { ServerLogo } from './ServerLogo'
 import { upload, validateFile } from '../lib/files'
 import { ServerMembers } from './ServerMembers'
+import { MemberManager } from './MemberManager'
 
 export function ServerAdmin({
   server,
@@ -14,6 +15,8 @@ export function ServerAdmin({
   close,
   refresh,
   report,
+  members,
+  userId,
 }: {
   server: Server
   channels: Channel[]
@@ -21,31 +24,22 @@ export function ServerAdmin({
   close: () => void
   refresh: () => Promise<void>
   report: (s: string) => void
+  members: ServerMember[]
+  userId: string
 }) {
   const [serverName, setServerName] = useState(server.name)
   const [description, setDescription] = useState(server.description)
-  const [memberAccess, setMemberAccess] = useState<{ channel_id: string; user_id: string }[]>([])
   const [roles, setRoles] = useState<Role[]>([]),
-    [assignments, setAssignments] = useState<{ role_id: string; user_id: string }[]>([]),
-    [permissions, setPermissions] = useState<{ id: string; channel_id: string; role_id: string }[]>(
-      [],
-    )
+    [assignments, setAssignments] = useState<{ role_id: string; user_id: string }[]>([])
   const [roleName, setRoleName] = useState(''),
     [busy, setBusy] = useState(false)
   async function load() {
-    const [r, m, p, a] = await Promise.all([
+    const [r, m] = await Promise.all([
       db().from('roles').select('*').eq('server_id', server.id),
       db().from('member_roles').select('*').eq('server_id', server.id),
-      db().from('channel_permissions').select('*').eq('server_id', server.id),
-      db()
-        .from('channel_member_permissions')
-        .select('channel_id,user_id')
-        .eq('server_id', server.id),
     ])
     setRoles(check(r) as Role[])
     setAssignments(check(m))
-    setPermissions(check(p))
-    setMemberAccess(check(a))
   }
   useEffect(() => {
     void load().catch((e) => report(errorText(e)))
@@ -172,6 +166,14 @@ export function ServerAdmin({
           </form>
         </section>
         <ServerMembers server={server} people={people} refresh={refresh} report={report} />
+        <MemberManager
+          server={server}
+          people={people}
+          members={members}
+          userId={userId}
+          refresh={refresh}
+          report={report}
+        />
         <section>
           <h3>
             <Shield size={17} />
@@ -257,157 +259,10 @@ export function ServerAdmin({
         <section>
           <h3>Canais e acesso</h3>
           <p className="muted">
-            Canais públicos estão disponíveis a todos. Nos privados, libere acesso por cargo ou por
-            usuário. O proprietário sempre tem acesso. As alterações são salvas automaticamente.
+            Use a engrenagem ao lado do nome de cada canal na barra lateral para renomear, convidar
+            participantes, gerenciar cargos e alterar a privacidade.
           </p>
-          {channels.map((channel) => (
-            <div className="role-section" key={channel.id}>
-              <div className="admin-row">
-                <strong>
-                  {channel.kind === 'text' ? '#' : '◖'} {channel.name}
-                </strong>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={channel.is_private}
-                    disabled={busy}
-                    onChange={(e) => {
-                      const value = e.target.checked
-                      void run(async () => {
-                        check(
-                          await db()
-                            .from('channels')
-                            .update({ is_private: value })
-                            .eq('id', channel.id),
-                        )
-                      })
-                    }}
-                  />
-                  Privado
-                </label>
-                <IconButton
-                  label={`Arquivar ${channel.name}`}
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        'Arquivar este canal? Seu histórico ficará inacessível até a restauração pelo banco.',
-                      )
-                    )
-                      void run(async () => {
-                        check(
-                          await db()
-                            .from('channels')
-                            .update({ archived: true })
-                            .eq('id', channel.id),
-                        )
-                      })
-                  }}
-                >
-                  <Trash2 size={15} />
-                </IconButton>
-              </div>
-              {channel.is_private && (
-                <>
-                  <h4>Cargos com acesso</h4>
-                  <div className="checkbox-grid">
-                    {roles.length === 0 && (
-                      <p className="muted">Crie um cargo acima ou escolha usuários abaixo.</p>
-                    )}
-                    {roles.map((role) => (
-                      <label key={role.id}>
-                        <input
-                          type="checkbox"
-                          disabled={busy}
-                          checked={permissions.some(
-                            (p) => p.channel_id === channel.id && p.role_id === role.id,
-                          )}
-                          onChange={(e) => {
-                            const enabled = e.target.checked
-                            void run(async () => {
-                              if (enabled)
-                                check(
-                                  await db().from('channel_permissions').insert({
-                                    server_id: server.id,
-                                    channel_id: channel.id,
-                                    role_id: role.id,
-                                  }),
-                                )
-                              else
-                                check(
-                                  await db()
-                                    .from('channel_permissions')
-                                    .delete()
-                                    .eq('channel_id', channel.id)
-                                    .eq('role_id', role.id),
-                                )
-                            })
-                          }}
-                        />
-                        {role.name}
-                      </label>
-                    ))}
-                  </div>
-                  <h4>Permissões por usuário</h4>
-                  <p className="muted">
-                    Permite ver o canal e participar da conversa. Acesso concedido por cargo
-                    continua válido.
-                  </p>
-                  <div className="checkbox-grid">
-                    {people.map((person) => {
-                      const isOwner = person.id === server.owner_id
-                      const fromRole = permissions.some(
-                        (permission) =>
-                          permission.channel_id === channel.id &&
-                          assignments.some(
-                            (assignment) =>
-                              assignment.user_id === person.id &&
-                              assignment.role_id === permission.role_id,
-                          ),
-                      )
-                      const direct = memberAccess.some(
-                        (access) =>
-                          access.channel_id === channel.id && access.user_id === person.id,
-                      )
-                      return (
-                        <label key={person.id}>
-                          <input
-                            type="checkbox"
-                            aria-label={`Acesso de ${person.display_name} a ${channel.name}`}
-                            checked={isOwner || fromRole || direct}
-                            disabled={busy || isOwner || fromRole}
-                            onChange={(event) => {
-                              const enabled = event.target.checked
-                              void run(async () => {
-                                if (enabled)
-                                  check(
-                                    await db().from('channel_member_permissions').insert({
-                                      server_id: server.id,
-                                      channel_id: channel.id,
-                                      user_id: person.id,
-                                    }),
-                                  )
-                                else
-                                  check(
-                                    await db()
-                                      .from('channel_member_permissions')
-                                      .delete()
-                                      .eq('channel_id', channel.id)
-                                      .eq('user_id', person.id),
-                                  )
-                              })
-                            }}
-                          />
-                          {person.display_name}
-                          {isOwner ? ' · proprietário' : fromRole ? ' · via cargo' : ''}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+          <p className="muted">{channels.length} canais neste servidor.</p>
         </section>
       </div>
     </Modal>
