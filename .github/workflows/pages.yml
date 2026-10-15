@@ -31,7 +31,7 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- tests/interface.spec.ts tests/community.spec.ts tests/audio.spec.ts
+      - run: npm run test:e2e -- tests/interface.spec.ts tests/community.spec.ts tests/audio.spec.ts tests/stream.spec.ts --workers=2
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}

@@ -7,6 +7,7 @@ import { ServerLogo } from './ServerLogo'
 import { upload, validateFile } from '../lib/files'
 import { ServerMembers } from './ServerMembers'
 import { MemberManager } from './MemberManager'
+import { useDialogs } from './Dialogs'
 
 export function ServerAdmin({
   server,
@@ -27,6 +28,7 @@ export function ServerAdmin({
   members: ServerMember[]
   userId: string
 }) {
+  const dialogs = useDialogs()
   const [serverName, setServerName] = useState(server.name)
   const [description, setDescription] = useState(server.description)
   const [roles, setRoles] = useState<Role[]>([]),
@@ -264,6 +266,31 @@ export function ServerAdmin({
           </p>
           <p className="muted">{channels.length} canais neste servidor.</p>
         </section>
+        {server.owner_id === userId && (
+          <section>
+            <h3>Excluir servidor</h3>
+            <p className="muted">
+              Exclui permanentemente este servidor, seus canais e o histórico de mensagens para todos os participantes.
+              Somente o proprietário pode realizar esta ação.
+            </p>
+            <button className="danger-button" disabled={busy} onClick={async () => {
+              if (!await dialogs.confirm({
+                title: `Excluir o servidor ${server.name}?`,
+                message: 'Todos os canais, mensagens, cargos e convites deste servidor serão apagados permanentemente. Os participantes perderão o acesso, inclusive aos anexos. Esta ação não pode ser desfeita.',
+                confirm: 'Excluir servidor', danger: true,
+              })) return
+              setBusy(true)
+              try {
+                check(await db().from('servers').delete().eq('id', server.id).select('id').single())
+                await refresh()
+                close()
+              } catch (error) {
+                report(errorText(error))
+                setBusy(false)
+              }
+            }}><Trash2 size={17} />Excluir servidor</button>
+          </section>
+        )}
       </div>
     </Modal>
   )

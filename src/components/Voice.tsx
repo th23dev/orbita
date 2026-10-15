@@ -41,6 +41,7 @@ import { Avatar, IconButton } from './ui'
 import { featuredStream } from '../lib/call-layout'
 import type { VoicePresence } from '../hooks/useVoicePresence'
 import { VoiceMicrophone } from '../lib/voice-microphone'
+import { StreamPlayer } from './StreamPlayer'
 import {
   canSelectAudioOutput,
   getAudioPreferences,
@@ -725,21 +726,14 @@ export function Voice({
             )}
             {featured && (
               <div className={`streams ${featured.kind === 'camera' ? 'featured-camera' : ''}`}>
-                <div className="screen-card">
-                  <div className="stream-label">
-                    {featured.kind === 'camera' ? <Video size={14} /> : <MonitorUp size={14} />}
-                    <span>
-                      {featured.kind === 'camera' ? 'Câmera' : 'Tela'} de {featured.name}
-                    </span>
-                    <b>AO VIVO</b>
-                  </div>
-                  <MediaTrack
-                    key={featured.sid}
-                    track={featured.track}
-                    camera={featured.kind === 'camera'}
-                    mirror={featured.kind === 'camera' && featured.local}
-                  />
-                </div>
+                <StreamPlayer
+                  key={featured.sid}
+                  track={featured.track}
+                  name={featured.name}
+                  camera={featured.kind === 'camera'}
+                  mirror={featured.kind === 'camera' && featured.local}
+                  report={report}
+                />
               </div>
             )}
             <div
@@ -1009,9 +1003,9 @@ export function Voice({
             {processingPreferences(audioPreferences).noiseSuppression === 'off'
               ? 'Supressão desligada'
               : enhancedAudio === false
-                ? 'Tratamento básico do navegador'
+                ? 'Supressão neural indisponível · filtro do navegador'
                 : enhancedAudio === true
-                  ? 'Tratamento de voz ativo'
+                  ? 'Supressão neural ativa'
                   : 'Tratamento de voz ao ligar o microfone'}
           </span>
           <span>

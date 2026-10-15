@@ -222,7 +222,7 @@ export function AudioSettings({ close }: { close: () => void }) {
               [
                 'voice',
                 'Foco na voz',
-                'Reduz o ruído de fundo, controla o eco e equilibra a sua voz.',
+                'Supressão neural de ruído, controle de eco e volume de voz equilibrado.',
               ],
               [
                 'studio',

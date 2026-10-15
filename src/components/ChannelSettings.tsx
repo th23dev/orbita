@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LogOut, Save, Trash2, UserPlus } from 'lucide-react'
+import { Archive, LogOut, Save, Trash2, UserPlus } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import type { Channel, Profile, Server } from '../lib/types'
 import { Avatar, Modal } from './ui'
@@ -65,7 +65,7 @@ export function ChannelSettings({
       )
     })
   return (
-    <Modal title={`Configurações de ${channel.name}`} close={close}>
+    <Modal title={`Configurações de ${channel.name}`} close={close} className="channel-settings">
       <div className="admin-sections">
         {canManage && (
           <form
@@ -285,8 +285,40 @@ export function ChannelSettings({
                 }
               }}
             >
-              <Trash2 size={16} />
+              <Archive size={16} />
               Arquivar canal
+            </button>
+          )}
+          {canManage && (
+            <button
+              className="danger-button"
+              disabled={busy}
+              onClick={async () => {
+                if (
+                  !(await dialogs.confirm({
+                    title: `Excluir o canal ${channel.name}?`,
+                    message:
+                      'O canal e seu histórico de mensagens serão apagados permanentemente. O acesso aos anexos será encerrado e as chamadas neste canal serão desconectadas. Esta ação não pode ser desfeita.',
+                    confirm: 'Excluir canal',
+                    danger: true,
+                  }))
+                )
+                  return
+                setBusy(true)
+                try {
+                  check(
+                    await db().from('channels').delete().eq('id', channel.id).select('id').single(),
+                  )
+                  await refresh()
+                  close()
+                } catch (error) {
+                  report(errorText(error))
+                  setBusy(false)
+                }
+              }}
+            >
+              <Trash2 size={16} />
+              Excluir canal
             </button>
           )}
         </footer>

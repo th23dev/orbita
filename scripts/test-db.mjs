@@ -535,6 +535,42 @@ await test('Only the owner promotes administrators; members can leave the server
   assert.equal((await as(ids[1], 'select * from servers where id=$1', [consentServer])).length, 0)
   await denied(ids[0], "select public.manage_membership($1,$2,'leave')", [consentServer, ids[0]])
 })
+await test('Channel deletion checks scope and cascades history without deleting other channels', async () => {
+  const s = (await as(ids[0], "insert into servers(owner_id,name) values($1,'Deletion test') returning id", [ids[0]]))[0].id
+  await db.query('insert into public.server_members(server_id,user_id) values($1,$2)', [s, ids[1]])
+  const channels = await as(ids[0], 'select id,kind from channels where server_id=$1 order by kind', [s])
+  const target = channels.find((c) => c.kind === 'text').id
+  const other = channels.find((c) => c.kind === 'voice').id
+  await as(ids[0], "insert into messages(author_id,channel_id,content) values($1,$2,'To remove')", [ids[0], target])
+  assert.equal((await as(ids[2], 'delete from channels where id=$1 returning id', [target])).length, 0)
+  assert.equal((await as(ids[1], 'delete from channels where id=$1 returning id', [target])).length, 0)
+  await db.query("insert into public.channel_memberships(server_id,channel_id,user_id,status,role) values($1,$2,$3,'accepted','moderator')", [s, target, ids[1]])
+  assert.equal((await as(ids[1], 'delete from channels where id=$1 returning id', [other])).length, 0)
+  assert.equal((await as(ids[1], 'delete from channels where id=$1 returning id', [target])).length, 1)
+  assert.equal((await db.query('select id from messages where channel_id=$1', [target])).rows.length, 0)
+  assert.equal((await db.query('select user_id from channel_memberships where channel_id=$1', [target])).rows.length, 0)
+  assert.equal((await as(ids[0], 'select id from channels where id=$1', [other])).length, 1)
+  assert.equal((await as(ids[0], 'delete from channels where id=$1 returning id', [other])).length, 1)
+})
+await test('Only the server owner can delete it; contents cascade and other communities survive', async () => {
+  const s = (await as(ids[0], "insert into servers(owner_id,name) values($1,'Server deletion test') returning id", [ids[0]]))[0].id
+  const c = (await as(ids[0], "select id from channels where server_id=$1 and kind='text'", [s]))[0].id
+  const m = (await as(ids[0], "insert into messages(author_id,channel_id,content) values($1,$2,'Remove with server') returning id", [ids[0], c]))[0].id
+  await as(ids[0], "insert into roles(server_id,name) values($1,'Test role')", [s])
+  await db.query("insert into public.server_members(server_id,user_id) values($1,$2)", [s, ids[1]])
+  await as(ids[0], 'select public.invite_member($1,$2)', [s, ids[2]])
+  assert.equal((await as(ids[2], 'delete from servers where id=$1 returning id', [s])).length, 0)
+  assert.equal((await as(ids[1], 'delete from servers where id=$1 returning id', [s])).length, 0)
+  await db.query("update public.server_members set access_role='admin' where server_id=$1 and user_id=$2", [s, ids[1]])
+  assert.equal((await as(ids[1], 'delete from servers where id=$1 returning id', [s])).length, 0)
+  assert.equal((await as(ids[0], 'delete from servers where id=$1 returning id', [s])).length, 1)
+  for (const table of ['channels', 'server_members', 'roles', 'community_invites'])
+    assert.equal((await db.query(`select * from public.${table} where server_id=$1`, [s])).rows.length, 0)
+  assert.equal((await db.query('select id from messages where id=$1', [m])).rows.length, 0)
+  assert.equal((await db.query('select id from servers where id=$1', [server.id])).rows.length, 1)
+  assert.equal((await db.query('select id from direct_conversations where id=$1', [dm])).rows.length, 1)
+  assert.equal((await db.query('select id from profiles')).rows.length, 3)
+})
 await test('Every public table has RLS and anon has no data grants', async () => {
   const tables = (
     await db.query(

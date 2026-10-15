@@ -12,7 +12,7 @@ export async function measureVoiceLoopback() {
   const sender = new RTCPeerConnection({ iceServers: [] })
   const receiver = new RTCPeerConnection({ iceServers: [] })
   let track: LocalAudioTrack | undefined
-  let oscillator: OscillatorNode | undefined
+  let voice: AudioBufferSourceNode | undefined
   let noise: AudioBufferSourceNode | undefined
   let monitor: HTMLAudioElement | undefined
   try {
@@ -20,22 +20,33 @@ export async function measureVoiceLoopback() {
     const input = context.createMediaStreamDestination()
     const noiseBuffer = context.createBuffer(1, context.sampleRate, context.sampleRate)
     const data = noiseBuffer.getChannelData(0)
-    let seed = 42
+    let seed = 42,
+      fan = 0
     for (let i = 0; i < data.length; i++) {
       seed = (Math.imul(1664525, seed) + 1013904223) >>> 0
-      data[i] = ((seed / 2 ** 32) * 2 - 1) * 0.0007
+      // Broadband fan noise, above the expander threshold: a gate alone fails this test.
+      fan = 0.85 * fan + 0.15 * ((seed / 2 ** 32) * 2 - 1)
+      data[i] = fan * 0.2
     }
     noise = context.createBufferSource()
     noise.buffer = noiseBuffer
     noise.loop = true
     noise.connect(input)
     noise.start()
-    oscillator = context.createOscillator()
-    oscillator.frequency.value = 220
+    const speech = await context.decodeAudioData(
+      await (await fetch('/tests/fixtures/voice-reference.wav')).arrayBuffer(),
+    )
     const voiceGain = context.createGain()
     voiceGain.gain.value = 0
-    oscillator.connect(voiceGain).connect(input)
-    oscillator.start()
+    voiceGain.connect(input)
+    const restartSpeech = () => {
+      voice?.stop()
+      voice = context.createBufferSource()
+      voice.buffer = speech
+      voice.loop = true
+      voice.connect(voiceGain)
+      voice.start(0, 2)
+    }
     const raw = input.stream.getAudioTracks()[0]
     // Generated tracks cannot apply microphone echo/noise constraints. This test
     // measures our worklet, independently of browser-native capture suppression.
@@ -75,6 +86,12 @@ export async function measureVoiceLoopback() {
       workletReady = ready
     })
     await microphone.setEnabled(true)
+    const localAnalyser = context.createAnalyser()
+    localAnalyser.fftSize = 4096
+    context
+      .createMediaStreamSource(new MediaStream([track.mediaStreamTrack]))
+      .connect(localAnalyser)
+    const localRms: number[] = []
     await sender.setLocalDescription(await sender.createOffer())
     // Include gathered candidates in SDP, avoiding external STUN/TURN or candidate races.
     const gather = async (pc: RTCPeerConnection) => {
@@ -108,17 +125,23 @@ export async function measureVoiceLoopback() {
     const samples = new Float32Array(analyser.fftSize)
     const rms = async () => {
       let sum = 0
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 30; i++) {
         await waitAudio(0.05)
         analyser.getFloatTimeDomainData(samples)
         for (const value of samples) sum += value * value
       }
-      return Math.sqrt(sum / (10 * samples.length))
+      return Math.sqrt(sum / (30 * samples.length))
     }
     const measure = async (mode: NoiseSuppressionMode, voice = false) => {
       await microphone.configure({ ...initial, noiseSuppression: mode })
-      voiceGain.gain.value = voice ? 0.08 : 0
-      await waitAudio(2.5)
+      voiceGain.gain.value = voice ? 1 : 0
+      if (voice) restartSpeech()
+      await waitAudio(1.5)
+      const localSamples = new Float32Array(localAnalyser.fftSize)
+      localAnalyser.getFloatTimeDomainData(localSamples)
+      localRms.push(
+        Math.sqrt(localSamples.reduce((sum, v) => sum + v * v, 0) / localSamples.length),
+      )
       return rms()
     }
     const quietOff = await measure('off')
@@ -139,6 +162,7 @@ export async function measureVoiceLoopback() {
     })
     return {
       nativeSuppressionTested: false,
+      localRms,
       processedBeforePublish,
       workletReady,
       bytesSent,
@@ -158,7 +182,7 @@ export async function measureVoiceLoopback() {
     if (monitor) monitor.srcObject = null
     track?.stop()
     noise?.stop()
-    oscillator?.stop()
+    voice?.stop()
     sender.close()
     receiver.close()
     await context.close()

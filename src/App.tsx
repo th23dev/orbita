@@ -210,6 +210,18 @@ function Workspace({ session }: { session: Session }) {
     if (voice && !data.loading && !data.channels.some((c) => c.id === voice.id)) setVoice(null)
   }, [data.channels, data.loading, voice])
   useEffect(() => {
+    if (!data.loading && serverId && !data.servers.some((server) => server.id === serverId)) {
+      setServerId('')
+      setModal((current) => current === 'admin' || current === 'invite' || current === 'channel' ? null : current)
+    }
+  }, [data.servers, data.loading, serverId])
+  useEffect(() => {
+    if (!data.loading && selection?.kind === 'channel' && !data.channels.some((channel) => channel.id === selection.id)) {
+      setSelection(null)
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+  }, [data.channels, data.loading, selection])
+  useEffect(() => {
     if (data.loading) return
     const match = window.location.hash.match(/^#\/(channel|dm)\/([a-f0-9-]{36})$/)
     if (match && selection === null) {

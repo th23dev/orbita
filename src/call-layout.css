@@ -1,4 +1,90 @@
 /* Consistent video proportions, independent of the number of participants. */
+.stream-player {
+  position: relative;
+  overflow: hidden;
+  background: #08090a;
+}
+.stream-player .stream-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stream-player .stream-label > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stream-fullscreen-button {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+  background: #ffffff12;
+  color: #f2f3f5;
+  flex-shrink: 0;
+}
+.stream-fullscreen-button:hover {
+  background: #b7ef7826;
+  color: #b7ef78;
+}
+.stream-video {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.stream-video video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.stream-video .mirrored-video {
+  transform: scaleX(-1);
+}
+.stream-player:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stream-player:fullscreen .stream-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.stream-player:fullscreen .stream-label {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px
+    max(16px, env(safe-area-inset-left));
+  background: linear-gradient(#000a, transparent);
+  transition: opacity 0.2s;
+}
+.stream-player:fullscreen.controls-hidden .stream-label {
+  opacity: 0;
+  pointer-events: none;
+}
+.stream-player:fullscreen.controls-hidden {
+  cursor: none;
+}
+.stream-player:fullscreen:focus-within .stream-label {
+  opacity: 1;
+  pointer-events: auto;
+}
 .call-header-actions .participants-toggle {
   min-width: 44px;
   min-height: 44px;
@@ -239,6 +325,44 @@
 }
 
 @media (max-width: 720px) {
+  .voice-controls {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    width: min(100%, 390px);
+    margin: 0 auto;
+  }
+  .call-control-group {
+    min-width: 0;
+  }
+  .call-control-group > span {
+    font-size: 9px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .call-footer-meta {
+    gap: 8px;
+    line-height: 1.5;
+  }
+  .call-footer-meta > span[role='status'] {
+    flex-basis: 100%;
+    order: 3;
+    text-align: center;
+  }
+  .call-audio-settings {
+    min-height: 44px;
+  }
+  .stream-label {
+    padding: 6px 10px;
+  }
+  .channel-settings .dialog-actions {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .channel-settings .dialog-actions > button {
+    min-height: 44px;
+  }
   .call-stage.has-screen {
     padding: 8px 10px;
     gap: 8px;

@@ -12,6 +12,7 @@
     "test:db": "node scripts/test-db.mjs"
   },
   "dependencies": {
+    "@shiguredo/rnnoise-wasm": "2022.2.0",
     "@supabase/supabase-js": "2.117.3",
     "livekit-client": "2.22.4",
     "lucide-react": "1.55.0",

@@ -420,9 +420,59 @@
   margin-bottom: 22px;
   width: 100%;
 }
-@media (max-width: 600px) {
+@media (max-width: 720px) {
+  .audio-settings-modal {
+    width: 100%;
+    max-height: calc(100dvh - env(safe-area-inset-top) - 12px);
+  }
   .audio-settings-modal .modal-inner {
-    padding: 18px;
+    padding: 0 18px calc(24px + env(safe-area-inset-bottom));
+  }
+  .audio-settings-modal header {
+    background: #202024;
+    padding: 16px 18px;
+  }
+  .audio-settings-modal header h2 {
+    font-size: 18px;
+  }
+  .audio-field select {
+    font-size: 16px;
+    min-height: 48px;
+  }
+  .audio-settings input[type='range'],
+  .audio-quick-popover input[type='range'] {
+    height: 44px;
+    touch-action: pan-y;
+  }
+  .audio-quick-controls > button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .audio-quick-popover {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 110px - env(safe-area-inset-bottom));
+    padding: 20px;
+    border-radius: 18px;
+    overscroll-behavior: contain;
+  }
+  .audio-device-help button,
+  .audio-device-refresh,
+  .audio-quick-meter button,
+  .audio-listen,
+  .audio-open-settings {
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .audio-toggle {
+    min-height: 56px;
+  }
+  .audio-toggle input {
+    height: 44px;
   }
   .audio-settings-intro {
     margin: 22px 0;

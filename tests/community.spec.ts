@@ -23,6 +23,7 @@ const old = '77777777-7777-4777-8777-777777777777'
 const reply = '88888888-8888-4888-8888-888888888888'
 const alias = '99999999-9999-4999-8999-999999999999'
 async function setup(page: Page, missingSchema = false) {
+  let serverDeleted = false
   await page.routeWebSocket('**/realtime/v1/websocket*', () => {})
   const profiles = [
     {
@@ -138,10 +139,21 @@ async function setup(page: Page, missingSchema = false) {
         data = server
       } else data = old
     } else if (name === 'profiles') data = profiles
-    else if (name === 'servers')
-      data = [{ id: server, name: 'Nossa turma', owner_id: me, description: '', icon_path: null }]
+    else if (name === 'servers') {
+      if (method === 'DELETE' && url.searchParams.get('id') === `eq.${server}`) {
+        serverDeleted = true
+        channels.splice(0)
+        calls.push({ name: 'delete_server', body: { id: server } })
+        data = { id: server }
+      } else data = serverDeleted ? [] : [{ id: server, name: 'Nossa turma', owner_id: me, description: '', icon_path: null }]
+    }
     else if (name === 'channels') {
-      if (method === 'PATCH') {
+      if (method === 'DELETE') {
+        const index = channels.findIndex((channel) => `eq.${channel.id}` === url.searchParams.get('id'))
+        const removed = channels.splice(index, 1)[0]
+        data = { id: removed.id }
+        calls.push({ name: 'delete_channel', body: { id: removed.id } })
+      } else if (method === 'PATCH') {
         Object.assign(
           channels.find((c) => `eq.${c.id}` === url.searchParams.get('id'))!,
           body,
@@ -321,6 +333,54 @@ test('Channel participant roles and removal use the custom dialog', async ({ pag
   expect(calls.filter((c) => c.name === 'manage_membership')[1].body.action).toBe('remove')
 })
 
+for (const failure of [false, true]) test(`Server deletion handles confirmation and ${failure ? 'request failures' : 'returning home'}`, async ({ page }) => {
+  const { calls } = await setup(page)
+  await chooseServer(page)
+  await navigation(page)
+  await page.getByRole('button', { name: 'Gerenciar servidor', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Gerenciar Nossa turma' })
+  await settings.getByRole('button', { name: 'Excluir servidor', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Excluir o servidor Nossa turma?' })
+  await expect(confirmation).toContainText('permanentemente')
+  await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click()
+  expect(calls.filter((call) => call.name === 'delete_server')).toHaveLength(0)
+  if (failure) await page.route(`${api}/rest/v1/servers*`, async (route) => {
+    if (route.request().method() === 'DELETE') await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Exclusão não autorizada' }) })
+    else await route.fallback()
+  })
+  await settings.getByRole('button', { name: 'Excluir servidor', exact: true }).click()
+  await confirmation.getByRole('button', { name: 'Excluir servidor', exact: true }).click()
+  if (failure) {
+    await expect(page.getByText('Exclusão não autorizada', { exact: true })).toBeVisible()
+    await expect(settings).toBeVisible()
+    await expect(settings.getByRole('button', { name: 'Excluir servidor', exact: true })).toBeEnabled()
+    expect(calls.filter((call) => call.name === 'delete_server')).toHaveLength(0)
+  } else {
+    await expect(settings).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Na sua órbita' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Nossa turma', exact: true })).toHaveCount(0)
+    expect(calls.filter((call) => call.name === 'delete_server')).toEqual([{ name: 'delete_server', body: { id: server } }])
+    expect(new URL(page.url()).hash).not.toContain(channel)
+  }
+})
+
+test('Channel deletion requires confirmation and removes the channel from navigation', async ({ page }) => {
+  const { calls } = await setup(page)
+  await chooseServer(page)
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de geral', exact: true }).click()
+  await page.getByRole('button', { name: 'Excluir canal', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Excluir o canal geral?' })
+  await expect(confirmation).toContainText('permanentemente')
+  await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click()
+  expect(calls.filter((call) => call.name === 'delete_channel')).toHaveLength(0)
+  await page.getByRole('button', { name: 'Excluir canal', exact: true }).click()
+  await confirmation.getByRole('button', { name: 'Excluir canal', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Configurações de geral', exact: true })).toHaveCount(0)
+  expect(calls.filter((call) => call.name === 'delete_channel')).toEqual([{ name: 'delete_channel', body: { id: channel } }])
+})
+
 test('Audio menus and settings persist device-local choices on desktop and mobile', async ({ page }) => {
   await setup(page)
   await navigation(page)
@@ -375,6 +435,8 @@ test('Microphone test meters processed audio and releases capture when closed', 
   await navigation(page)
   await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
   await page.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  // Meter/volume transport test uses a pure tone; neural suppression correctly rejects it as noise.
+  await page.getByRole('radio', { name: /Estúdio/ }).check()
   await page.getByRole('button', { name: 'Teste do microfone', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Parar teste', exact: true })).toBeVisible()
   await expect.poll(async () => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))).toBeGreaterThan(20)
@@ -431,4 +493,30 @@ test('Quick audio menus refresh after permissions and share the settings device 
   await page.evaluate(() => { (window as any).audioInventory.input = 'Microfone atualizado' })
   await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Entrada de áudio' }).getByLabel('Dispositivo de entrada').locator('option')).toHaveText(['Padrão do sistema', 'Microfone atualizado'])
+})
+
+test('Audio sheets fit a narrow phone and remain usable after rotation', async ({ page }, info) => {
+  await page.setViewportSize({ width: 320, height: 640 })
+  await setup(page)
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
+  const quick = page.getByRole('dialog', { name: 'Entrada de áudio' })
+  await expect(quick).toBeVisible()
+  const bounds = await quick.boundingBox()
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320)
+  expect(bounds!.y).toBeGreaterThanOrEqual(0)
+  await quick.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Voz e áudio' })
+  await expect(settings).toBeVisible()
+  expect(await settings.getByLabel('Dispositivo de entrada').evaluate((element) => getComputedStyle(element).fontSize)).toBe('16px')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: `test-results/audio-phone-${info.project.name}.png` })
+  await page.getByRole('radio', { name: /Personalizado/ }).check()
+  await page.getByLabel('Supressão de ruído').selectOption('strong')
+  await page.setViewportSize({ width: 640, height: 320 })
+  await expect(settings.getByRole('button', { name: 'Fechar', exact: true })).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await settings.getByRole('button', { name: 'Fechar', exact: true }).click()
+  await expect(settings).toHaveCount(0)
 })
