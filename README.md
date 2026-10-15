@@ -201,6 +201,8 @@ docs/                     segurança e aceitação em dispositivos distintos
 
 ## Limites conhecidos
 
+As chamadas incluem configuração de dispositivos, volumes, teste de microfone e tratamento de ruído. Consulte [Voz e áudio](docs/AUDIO.md) para os perfis, funcionamento e compatibilidade.
+
 - O carregamento inicial de perfis está limitado a 1.000 registros, adequado a comunidades pequenas. Para crescer, use consultas por IDs visíveis e busca paginada do diretório.
 - Presence representa o servidor atualmente aberto; status online em outros servidores não é uma lista global de conexões.
 - Autorizações Realtime são verificadas na entrada/renovação de JWT. Links assinados continuam válidos por até 60 segundos. Tokens LiveKit expirados não expulsam participantes já conectados. O cliente verifica acesso de voz a cada 15 segundos; para expulsão resistente a clientes adulterados, um backend de moderação deve chamar `RoomServiceClient.removeParticipant` ao revogar acesso. Ver [segurança](docs/SEGURANCA.md).

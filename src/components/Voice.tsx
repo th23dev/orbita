@@ -7,7 +7,7 @@ import {
   Track,
   createLocalVideoTrack,
 } from 'livekit-client'
-import type { Participant, RemoteParticipant, LocalVideoTrack } from 'livekit-client'
+import type { Participant, LocalVideoTrack } from 'livekit-client'
 import { FunctionsHttpError, FunctionsFetchError } from '@supabase/supabase-js'
 import {
   AudioLines,
@@ -29,6 +29,7 @@ import {
   Radio,
   Video,
   VideoOff,
+  Settings2,
 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { addSound, deleteSound } from '../lib/files'
@@ -39,19 +40,31 @@ import type { Channel, Profile, Sound } from '../lib/types'
 import { Avatar, IconButton } from './ui'
 import { featuredStream } from '../lib/call-layout'
 import type { VoicePresence } from '../hooks/useVoicePresence'
+import { VoiceMicrophone } from '../lib/voice-microphone'
+import {
+  canSelectAudioOutput,
+  getAudioPreferences,
+  processingPreferences,
+  updateAudioPreferences,
+  useAudioPreferences,
+} from '../lib/audio-preferences'
 
 function MediaTrack({
   track,
   camera = false,
   mirror = false,
+  volume = 1,
 }: {
   track: Track
   camera?: boolean
   mirror?: boolean
+  volume?: number
 }) {
   const element = useRef<HTMLDivElement>(null)
+  const mediaElement = useRef<HTMLMediaElement | null>(null)
   useEffect(() => {
     const media = track.attach()
+    mediaElement.current = media
     if (track.kind === Track.Kind.Video) {
       ;(media as HTMLVideoElement).playsInline = true
       media.muted = true
@@ -60,8 +73,13 @@ function MediaTrack({
     return () => {
       track.detach(media)
       media.remove()
+      mediaElement.current = null
     }
   }, [track])
+  useEffect(() => {
+    if (mediaElement.current && track.kind === Track.Kind.Audio)
+      mediaElement.current.volume = volume
+  }, [volume, track])
   return (
     <div
       className={
@@ -82,6 +100,7 @@ export function Voice({
   report,
   leave,
   onPresenceChange,
+  openAudioSettings,
 }: {
   channel: Channel
   me: Profile
@@ -90,11 +109,19 @@ export function Voice({
   report: (s: string) => void
   leave: () => void
   onPresenceChange: (presence: VoicePresence | null) => void
+  openAudioSettings: () => void
 }) {
   const dialogs = useDialogs()
   const [room] = useState(
     () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
   )
+  const audioPreferences = useAudioPreferences()
+  const [enhancedAudio, setEnhancedAudio] = useState<boolean | null>(null)
+  const [microphone] = useState(
+    () => new VoiceMicrophone(room, getAudioPreferences(), setEnhancedAudio),
+  )
+  const [microphoneBusy, setMicrophoneBusy] = useState(false)
+  const [participantVolumes, setParticipantVolumes] = useState<Record<string, number>>({})
   const [state, setState] = useState<ConnectionState>(ConnectionState.Disconnected),
     [joining, setJoining] = useState(false),
     [joined, setJoined] = useState(false),
@@ -211,6 +238,7 @@ export function Voice({
       .subscribe()
     return () => {
       mounted.current = false
+      microphone.cancelPending()
       onPresenceChange(null)
       previewCameraRef.current?.stop()
       previewCameraRef.current = null
@@ -222,6 +250,78 @@ export function Voice({
       void db().removeChannel(sub)
     }
   }, [room, me.id, report, onPresenceChange, channel.id])
+  useEffect(() => {
+    let current = true
+    void microphone.configure(audioPreferences).catch(() => {
+      if (current) {
+        const {
+          outputDevice: _outputDevice,
+          outputVolume: _outputVolume,
+          ...previous
+        } = microphone.getPreferences()
+        if (
+          Object.keys(previous).some(
+            (key) =>
+              previous[key as keyof typeof previous] !==
+              audioPreferences[key as keyof typeof previous],
+          )
+        )
+          updateAudioPreferences(previous)
+        report(
+          'Não foi possível aplicar os ajustes do microfone. Restauramos os ajustes anteriores; confira o dispositivo nas configurações de voz.',
+        )
+      }
+    })
+    return () => {
+      current = false
+    }
+  }, [microphone, audioPreferences, report])
+  useEffect(() => {
+    if (!canSelectAudioOutput()) return
+    let current = true
+    void room.switchActiveDevice('audiooutput', audioPreferences.outputDevice).catch(() => {
+      if (!current) return
+      report('A saída selecionada está indisponível. Usando a saída padrão do sistema.')
+      if (audioPreferences.outputDevice !== 'default')
+        updateAudioPreferences({ outputDevice: 'default' })
+    })
+    return () => {
+      current = false
+    }
+  }, [room, audioPreferences.outputDevice, report])
+  useEffect(() => {
+    const devicesChanged = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        if (!mounted.current || !devices.some((device) => device.label)) return
+        const preferences = getAudioPreferences()
+        const patch: Partial<typeof preferences> = {}
+        if (
+          preferences.inputDevice !== 'default' &&
+          !devices.some(
+            (device) => device.kind === 'audioinput' && device.deviceId === preferences.inputDevice,
+          )
+        )
+          patch.inputDevice = 'default'
+        if (
+          preferences.outputDevice !== 'default' &&
+          !devices.some(
+            (device) =>
+              device.kind === 'audiooutput' && device.deviceId === preferences.outputDevice,
+          )
+        )
+          patch.outputDevice = 'default'
+        if (Object.keys(patch).length) {
+          updateAudioPreferences(patch)
+          report('Um dispositivo de áudio foi desconectado. Selecionamos o padrão do sistema.')
+        }
+      } catch {
+        /* Device enumeration is optional. */
+      }
+    }
+    navigator.mediaDevices?.addEventListener('devicechange', devicesChanged)
+    return () => navigator.mediaDevices?.removeEventListener('devicechange', devicesChanged)
+  }, [report])
   // Recheck server authorization while connected. Tokens alone do not evict existing media sessions.
   useEffect(() => {
     if (!joined) return
@@ -410,7 +510,7 @@ export function Voice({
         }
       }
       try {
-        if (enableMicrophone) await room.localParticipant.setMicrophoneEnabled(true)
+        if (enableMicrophone) await microphone.setEnabled(true)
       } catch {
         report(
           'Você entrou com o microfone desligado. Permita o acesso ao microfone no navegador para falar.',
@@ -438,6 +538,7 @@ export function Voice({
         name: p.name || p.identity,
         sid: pub.trackSid,
         local: p.isLocal,
+        identity: p.identity,
       })),
   )
   const screens = tracks.filter(({ track }) => track.kind === Track.Kind.Video)
@@ -691,9 +792,12 @@ export function Voice({
                           min="0"
                           max="1"
                           step="0.05"
-                          defaultValue="1"
+                          value={participantVolumes[person.identity] ?? 1}
                           onChange={(e) =>
-                            (person as RemoteParticipant).setVolume(Number(e.target.value))
+                            setParticipantVolumes((values) => ({
+                              ...values,
+                              [person.identity]: Number(e.target.value),
+                            }))
                           }
                         />
                       </label>
@@ -713,8 +817,12 @@ export function Voice({
       <div className="call-audio" aria-hidden="true">
         {tracks
           .filter(({ track }) => track.kind === Track.Kind.Audio)
-          .map(({ track, sid }) => (
-            <MediaTrack key={sid} track={track} />
+          .map(({ track, sid, identity }) => (
+            <MediaTrack
+              key={sid}
+              track={track}
+              volume={audioPreferences.outputVolume * (participantVolumes[identity] ?? 1)}
+            />
           ))}
       </div>
       {joined && !room.canPlaybackAudio && (
@@ -757,7 +865,7 @@ export function Voice({
             <div className="call-control-group">
               <button
                 className={`call-control ${!room.localParticipant.isMicrophoneEnabled ? 'is-muted' : ''}`}
-                disabled={!connected || joining}
+                disabled={!connected || joining || microphoneBusy}
                 title={
                   room.localParticipant.isMicrophoneEnabled
                     ? 'Desligar microfone'
@@ -771,10 +879,13 @@ export function Voice({
                 aria-pressed={room.localParticipant.isMicrophoneEnabled}
                 onClick={() =>
                   void run(async () => {
-                    await room.localParticipant.setMicrophoneEnabled(
-                      !room.localParticipant.isMicrophoneEnabled,
-                    )
-                    setVersion((v) => v + 1)
+                    setMicrophoneBusy(true)
+                    try {
+                      await microphone.setEnabled(!room.localParticipant.isMicrophoneEnabled)
+                      setVersion((v) => v + 1)
+                    } finally {
+                      setMicrophoneBusy(false)
+                    }
                   })
                 }
               >
@@ -887,6 +998,22 @@ export function Voice({
           </div>
         )}
         <div className="call-footer-meta">
+          <button
+            className="call-audio-settings"
+            onClick={openAudioSettings}
+            title="Configurar dispositivos, volumes e tratamento de voz"
+          >
+            <Settings2 size={14} /> Voz e áudio
+          </button>
+          <span role="status">
+            {processingPreferences(audioPreferences).noiseSuppression === 'off'
+              ? 'Supressão desligada'
+              : enhancedAudio === false
+                ? 'Tratamento básico do navegador'
+                : enhancedAudio === true
+                  ? 'Tratamento de voz ativo'
+                  : 'Tratamento de voz ao ligar o microfone'}
+          </span>
           <span>
             <Radio size={12} />
             {joined
@@ -963,7 +1090,11 @@ export function Voice({
           </button>
         </div>
         {uploadProgress !== null && <progress value={uploadProgress} max={100} />}
-        {soundError && <p role="alert" className="sound-empty">{soundError}</p>}
+        {soundError && (
+          <p role="alert" className="sound-empty">
+            {soundError}
+          </p>
+        )}
         <div className="sound-grid">
           {sounds.map((sound, i) => (
             <div className="sound-tile" key={sound.id}>
@@ -979,12 +1110,16 @@ export function Voice({
                     const sequence = ++soundSequence.current
                     board.current ??= new Soundboard(joined ? room : undefined)
                     try {
-                      const started = await board.current.play(async () => {
-                        const blob = check(await db().storage.from('sounds').download(sound.path))
-                        return blob.arrayBuffer()
-                      }, volume, () => {
-                        if (sequence === soundSequence.current) setActiveSound(null)
-                      })
+                      const started = await board.current.play(
+                        async () => {
+                          const blob = check(await db().storage.from('sounds').download(sound.path))
+                          return blob.arrayBuffer()
+                        },
+                        volume,
+                        () => {
+                          if (sequence === soundSequence.current) setActiveSound(null)
+                        },
+                      )
                       if (started && sequence === soundSequence.current) setActiveSound(sound.id)
                     } catch (error) {
                       setSoundError(`Não foi possível tocar o som: ${errorText(error)}`)
@@ -1001,9 +1136,9 @@ export function Voice({
                     ? 'Carregando…'
                     : activeSound === sound.id
                       ? 'Reproduzindo…'
-                    : joined
-                      ? String(i + 1).padStart(2, '0')
-                      : 'Ouvir prévia'}
+                      : joined
+                        ? String(i + 1).padStart(2, '0')
+                        : 'Ouvir prévia'}
                 </small>
               </button>
               <div className="sound-actions">
@@ -1084,11 +1219,14 @@ export function Voice({
               }
             />
           </label>
-          <button className="secondary" onClick={() => {
-            soundSequence.current++
-            board.current?.stop()
-            setActiveSound(null)
-          }}>
+          <button
+            className="secondary"
+            onClick={() => {
+              soundSequence.current++
+              board.current?.stop()
+              setActiveSound(null)
+            }}
+          >
             <Square size={14} />
             Parar sons
           </button>

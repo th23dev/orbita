@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, LogOut, Moon, Sun } from 'lucide-react'
+import { Camera, Headphones, LogOut, Moon, Sun } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { upload, validateFile } from '../lib/files'
 import type { Profile, Settings as Preferences } from '../lib/types'
@@ -11,12 +11,14 @@ export function Settings({
   close,
   refresh,
   report,
+  openAudioSettings,
 }: {
   me: Profile
   settings: Preferences
   close: () => void
   refresh: () => Promise<void>
   report: (s: string) => void
+  openAudioSettings: () => void
 }) {
   const [name, setName] = useState(me.display_name),
     [username, setUsername] = useState(me.username),
@@ -36,6 +38,9 @@ export function Settings({
   }
   return (
     <Modal title="Seu espaço, seu jeito" close={close}>
+      <button className="secondary settings-audio-link" onClick={openAudioSettings}>
+        <Headphones size={18} /> Voz e áudio · dispositivos e microfone
+      </button>
       <form
         className="settings-form"
         onSubmit={(e) => {

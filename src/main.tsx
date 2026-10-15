@@ -6,6 +6,7 @@ import './styles.css'
 import './mobile.css'
 import './call-layout.css'
 import './community.css'
+import './audio-settings.css'
 
 // Retire the previous notification worker and close any notices it left behind.
 if ('serviceWorker' in navigator) {

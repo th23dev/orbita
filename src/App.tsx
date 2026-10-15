@@ -26,6 +26,7 @@ import { Auth } from './components/Auth'
 import { Chat } from './components/Chat'
 import { Friends } from './components/Friends'
 import { Settings } from './components/Settings'
+import { AudioQuickControls, AudioSettings } from './components/AudioSettings'
 import { ServerAdmin } from './components/ServerAdmin'
 import { ServerRailItem } from './components/ServerRailItem'
 import { ServerMembers } from './components/ServerMembers'
@@ -606,6 +607,7 @@ function Workspace({ session }: { session: Session }) {
                     : 'Disponível'}
             </small>
           </div>
+          <AudioQuickControls openSettings={() => setModal('audio')} />
           <IconButton
             label="Configurações"
             disabled={!data.me}
@@ -753,6 +755,7 @@ function Workspace({ session }: { session: Session }) {
                     report={report}
                     leave={leave}
                     onPresenceChange={onPresenceChange}
+                    openAudioSettings={() => setModal('audio')}
                   />
                 </Suspense>
               </div>
@@ -864,8 +867,10 @@ function Workspace({ session }: { session: Session }) {
           refresh={data.refresh}
           close={() => setModal(null)}
           report={report}
+          openAudioSettings={() => setModal('audio')}
         />
       )}
+      {modal === 'audio' && <AudioSettings close={() => setModal(null)} />}
       {modal === 'admin' && currentServer && owner && (
         <ServerAdmin
           server={currentServer}

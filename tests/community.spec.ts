@@ -320,3 +320,115 @@ test('Channel participant roles and removal use the custom dialog', async ({ pag
   await expect.poll(() => calls.filter((c) => c.name === 'manage_membership').length).toBe(2)
   expect(calls.filter((c) => c.name === 'manage_membership')[1].body.action).toBe('remove')
 })
+
+test('Audio menus and settings persist device-local choices on desktop and mobile', async ({ page }) => {
+  await setup(page)
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
+  const quick = page.getByRole('dialog', { name: 'Entrada de áudio' })
+  await expect(quick.getByLabel('Dispositivo de entrada')).toBeVisible()
+  await expect(quick.getByRole('meter')).toBeVisible()
+  await page.screenshot({ path: `test-results/audio-input-menu-${test.info().project.name}.png`, fullPage: true })
+  await quick.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Voz e áudio' })
+  await expect(settings).toBeVisible()
+  await expect(settings.getByLabel('Dispositivo de saída')).toBeVisible()
+  await settings.getByLabel('Personalizado', { exact: false }).check()
+  await settings.getByLabel('Supressão de ruído').selectOption('strong')
+  await settings.getByRole('switch', { name: 'Sensibilidade automática' }).uncheck()
+  await settings.getByRole('slider', { name: 'Limiar de entrada' }).fill('-45')
+  await settings.getByRole('slider', { name: 'Volume de saída' }).fill('65')
+  expect(await settings.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: `test-results/audio-settings-${test.info().project.name}.png`, fullPage: true })
+  await settings.getByRole('switch', { name: 'Ganho automático' }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: `test-results/audio-processing-${test.info().project.name}.png`, fullPage: true })
+  await settings.getByRole('button', { name: 'Fechar', exact: true }).click()
+  await page.getByRole('button', { name: 'Configurações de saída', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Saída de áudio' }).getByRole('slider', { name: 'Volume de saída' })).toHaveValue('65')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Saída de áudio' })).toHaveCount(0)
+  await page.reload()
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
+  await page.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  await expect(page.getByLabel('Supressão de ruído')).toHaveValue('strong')
+  await expect(page.getByRole('slider', { name: 'Limiar de entrada' })).toHaveValue('-45')
+})
+
+test('Microphone test meters processed audio and releases capture when closed', async ({ page }) => {
+  await setup(page)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
+      const context = new AudioContext()
+      await context.resume()
+      const oscillator = context.createOscillator()
+      oscillator.frequency.value = 220
+      const gain = context.createGain()
+      gain.gain.value = 0.1
+      const output = context.createMediaStreamDestination()
+      oscillator.connect(gain).connect(output)
+      oscillator.start()
+      Object.assign(window, { testCapture: { context, oscillator, track: output.stream.getAudioTracks()[0] } })
+      return output.stream
+    } })
+  })
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
+  await page.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  await page.getByRole('button', { name: 'Teste do microfone', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Parar teste', exact: true })).toBeVisible()
+  await expect.poll(async () => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))).toBeGreaterThan(20)
+  await page.getByRole('button', { name: 'Ouvir minha voz', exact: false }).click()
+  await expect(page.getByRole('button', { name: 'Parar de ouvir minha voz', exact: false })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('slider', { name: 'Volume de entrada' }).fill('0')
+  await expect.poll(async () => Number(await page.getByRole('meter').getAttribute('aria-valuenow'))).toBe(0)
+  await page.getByRole('button', { name: 'Fechar', exact: true }).click()
+  expect(await page.evaluate(() => (window as any).testCapture.track.readyState)).toBe('ended')
+  await page.evaluate(async () => {
+    (window as any).testCapture.oscillator.stop()
+    await (window as any).testCapture.context.close()
+  })
+})
+
+test('Quick audio menus refresh after permissions and share the settings device inventory', async ({ page }) => {
+  await page.addInitScript(() => {
+    const inventory = { authorized: false, output: 'Headset USB', input: 'Microfone USB', requests: 0, stopped: 0 }
+    Object.assign(window, { audioInventory: inventory })
+    Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { configurable: true, value: async () => {
+      inventory.requests++
+      return inventory.authorized ? [
+        { kind: 'audioinput', deviceId: 'mic-usb', label: inventory.input, groupId: 'usb' },
+        { kind: 'audiooutput', deviceId: 'speaker-usb', label: inventory.output, groupId: 'usb' },
+      ] : []
+    } })
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
+      inventory.authorized = true
+      // Granting permission does not necessarily emit devicechange.
+      return { getTracks: () => [{ stop: () => { inventory.stopped++ } }] }
+    } })
+  })
+  await setup(page)
+  await navigation(page)
+  await page.getByRole('button', { name: 'Configurações de saída', exact: true }).click()
+  const quick = page.getByRole('dialog', { name: 'Saída de áudio' })
+  await expect(quick.getByLabel('Dispositivo de saída').locator('option')).toHaveCount(1)
+  await quick.getByRole('button', { name: 'Configurações de voz', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Voz e áudio' })
+  await settings.getByRole('button', { name: 'Permitir acesso e atualizar dispositivos' }).click()
+  await expect(settings.getByLabel('Dispositivo de saída').locator('option')).toHaveText(['Padrão do sistema', 'Headset USB'])
+  await expect(settings.getByLabel('Dispositivo de entrada').locator('option')).toHaveText(['Padrão do sistema', 'Microfone USB'])
+  expect(await page.evaluate(() => (window as any).audioInventory.stopped)).toBe(1)
+  await settings.getByRole('button', { name: 'Fechar', exact: true }).click()
+  await page.getByRole('button', { name: 'Configurações de saída', exact: true }).click()
+  await expect(quick.getByLabel('Dispositivo de saída').locator('option')).toHaveText(['Padrão do sistema', 'Headset USB'])
+  await quick.getByLabel('Dispositivo de saída').selectOption('speaker-usb')
+  await page.evaluate(() => {
+    (window as any).audioInventory.output = 'Alto-falantes externos'
+    navigator.mediaDevices.dispatchEvent(new Event('devicechange'))
+  })
+  await expect(quick.getByLabel('Dispositivo de saída').locator('option')).toHaveText(['Padrão do sistema', 'Alto-falantes externos'])
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => { (window as any).audioInventory.input = 'Microfone atualizado' })
+  await page.getByRole('button', { name: 'Configurações de entrada', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Entrada de áudio' }).getByLabel('Dispositivo de entrada').locator('option')).toHaveText(['Padrão do sistema', 'Microfone atualizado'])
+})
