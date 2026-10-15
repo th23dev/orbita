@@ -151,15 +151,24 @@ test.describe('native microphone processing', () => {
     const settings = await page.evaluate(async () => {
       const { voiceCaptureOptions } = await import(/* @vite-ignore */ '/src/lib/voice-processing.ts')
       const { defaultAudioPreferences } = await import(/* @vite-ignore */ '/src/lib/audio-preferences.ts')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: voiceCaptureOptions(defaultAudioPreferences) })
-      const track = stream.getAudioTracks()[0]
+      const enabledStream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceCaptureOptions(defaultAudioPreferences),
+      })
+      const enabled = enabledStream.getAudioTracks()[0].getSettings()
+      enabledStream.getTracks().forEach((track) => track.stop())
+      const disabledStream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceCaptureOptions({ ...defaultAudioPreferences, profile: 'studio' }),
+      })
       try {
-        const enabled = track.getSettings()
-        await track.applyConstraints({ noiseSuppression: false, echoCancellation: false, autoGainControl: false })
-        return { enabled, disabled: track.getSettings() }
-      } finally { stream.getTracks().forEach((track) => track.stop()) }
+        return { enabled, disabled: disabledStream.getAudioTracks()[0].getSettings() }
+      } finally {
+        disabledStream.getTracks().forEach((track) => track.stop())
+      }
     })
-    await info.attach('native-audio-settings.json', { body: JSON.stringify(settings, null, 2), contentType: 'application/json' })
+    await info.attach('native-audio-settings.json', {
+      body: JSON.stringify(settings, null, 2),
+      contentType: 'application/json',
+    })
     expect(settings.enabled.noiseSuppression).toBe(true)
     expect(settings.enabled.echoCancellation).toBe(true)
     expect(settings.disabled.noiseSuppression).toBe(false)
