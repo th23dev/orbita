@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
 
+test.use({
+  launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
+  permissions: ['microphone'],
+})
+
 test('real AudioWorklet processes audio, bypasses, restarts and releases only owned resources', async ({
   page,
 }) => {
@@ -141,10 +146,6 @@ test('noise reduction is measurable on the received WebRTC track', async ({ page
 })
 
 test.describe('native microphone processing', () => {
-  test.use({
-    launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
-    permissions: ['microphone'],
-  })
   test('Chromium reports native suppression enabled and honors disabling it', async ({ page }, info) => {
     await page.goto('/')
     const settings = await page.evaluate(async () => {
