@@ -31,7 +31,7 @@ export class VoiceGate {
     const strong = this.mode === 'strong'
     const minimum = 10 ** ((strong ? -50 : -58) / 20)
     const ceiling = 10 ** ((strong ? -38 : -46) / 20)
-    const floorGain = strong ? 0.025 : 0.1
+    const floorGain = strong ? 0.01 : 0.1
     for (let i = 0; i < output.length; i++) {
       const sample = input[i] || 0
       const magnitude = Math.abs(sample)

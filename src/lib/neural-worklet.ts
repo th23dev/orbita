@@ -66,7 +66,7 @@ class NeuralWorklet extends AudioWorkletProcessor {
           // Neural voice detection closes on loud non-speech too. Hold preserves word endings.
           if (probability >= (strong ? 0.5 : 0.3)) this.hold = 20
           else this.hold = Math.max(0, this.hold - 1)
-          const target = this.hold > 0 || this.mode === 'off' ? 1 : strong ? 0.02 : 0.1
+          const target = this.hold > 0 || this.mode === 'off' ? 1 : strong ? 0.01 : 0.1
           const speed = Math.exp(-1 / (48000 * (target > this.gain ? 0.003 : 0.15)))
           for (let j = 0; j < 480; j++) {
             this.gain = speed * this.gain + (1 - speed) * target
