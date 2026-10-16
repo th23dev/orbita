@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { LocalVideoTrack } from 'livekit-client'
 import { StreamPlayer } from '../../src/components/StreamPlayer'
 
-export function mountStreamPlayer() {
+export function mountStreamPlayer(local = false) {
   const canvas = document.createElement('canvas')
   canvas.width = 1280
   canvas.height = 720
@@ -22,6 +22,7 @@ export function mountStreamPlayer() {
   const root = createRoot(host)
   root.render(
     <StreamPlayer
+      local={local}
       track={track}
       name="Teste"
       report={(message) => {
@@ -30,6 +31,7 @@ export function mountStreamPlayer() {
     />,
   )
   Object.assign(window, {
+    previewCapture: track.mediaStreamTrack,
     unmountStreamPlayer: () => {
       root.unmount()
       host.remove()

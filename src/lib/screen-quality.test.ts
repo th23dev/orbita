@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConnectionState, Track, type Room } from 'livekit-client'
 import {
   changePublishedScreenQuality,
   defaultScreenQuality,
   screenCaptureOptions,
   screenPublishOptions,
+  screenVideoCodec,
   setReceivedScreenQuality,
 } from './screen-quality'
 
@@ -33,10 +34,18 @@ function fixture() {
 }
 
 describe('screen sharing quality', () => {
-  it('captures and encodes at 1080p60 by default, with useful fallback layers', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('preserves 1080p60 while reducing auxiliary encoding load and keeping game audio intact', () => {
     expect(screenCaptureOptions(defaultScreenQuality)).toMatchObject({
       contentHint: 'motion',
-      audio: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 2,
+        suppressLocalAudioPlayback: false,
+      },
+      selfBrowserSurface: 'exclude',
       resolution: { width: 1920, height: 1080, frameRate: 60 },
     })
     const options = screenPublishOptions(defaultScreenQuality)
@@ -44,8 +53,38 @@ describe('screen sharing quality', () => {
     expect(options.screenShareEncoding).toMatchObject({ maxFramerate: 60, maxBitrate: 8_000_000 })
     expect(options.degradationPreference).toBe('maintain-framerate')
     expect(options.screenShareSimulcastLayers?.map((layer) => layer.encoding.maxFramerate)).toEqual(
-      [30, 60],
+      [15, 30],
     )
+    expect(options).toMatchObject({
+      forceStereo: true,
+      dtx: false,
+      audioPreset: { maxBitrate: 128_000 },
+    })
+  })
+
+  it('prefers an advertised H264 encoder and falls back to VP8 when unavailable', () => {
+    vi.stubGlobal('RTCRtpSender', {
+      getCapabilities: () => ({ codecs: [{ mimeType: 'video/H264' }] }),
+    })
+    expect(screenVideoCodec()).toBe('h264')
+    vi.stubGlobal('RTCRtpSender', {
+      getCapabilities: () => ({ codecs: [{ mimeType: 'video/VP8' }] }),
+    })
+    expect(screenVideoCodec()).toBe('vp8')
+    vi.stubGlobal('RTCRtpSender', undefined)
+    expect(screenVideoCodec()).toBe('vp8')
+  })
+
+  it('offers 1080p30 without lowering the source resolution', () => {
+    expect(screenCaptureOptions('1080p30').resolution).toEqual({
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+    })
+    expect(screenPublishOptions('1080p30').screenShareEncoding).toMatchObject({
+      maxFramerate: 30,
+      maxBitrate: 5_000_000,
+    })
   })
 
   it('reduces capture, encoder bitrate and fps without stopping capture or touching other tracks', async () => {

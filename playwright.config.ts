@@ -6,6 +6,11 @@ export default defineConfig({
   use: { baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:4173', trace: 'retain-on-failure' },
   projects: [
     {
+      name: 'firefox',
+      testMatch: 'stream.spec.ts',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], channel: process.env.PLAYWRIGHT_CHANNEL || undefined },
     },

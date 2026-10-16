@@ -1,8 +1,14 @@
-import { ConnectionState, Track, VideoPreset } from 'livekit-client'
-import type { Room, ScreenShareCaptureOptions, TrackPublishOptions } from 'livekit-client'
+import { AudioPresets, ConnectionState, Track, VideoPreset } from 'livekit-client'
+import type {
+  AudioCaptureOptions,
+  Room,
+  ScreenShareCaptureOptions,
+  TrackPublishOptions,
+} from 'livekit-client'
 
 export const screenQualities = {
   '1080p60': { label: '1080p · 60 fps', width: 1920, height: 1080, fps: 60, bitrate: 8_000_000 },
+  '1080p30': { label: '1080p · 30 fps', width: 1920, height: 1080, fps: 30, bitrate: 5_000_000 },
   '720p60': { label: '720p · 60 fps', width: 1280, height: 720, fps: 60, bitrate: 4_000_000 },
   '720p30': { label: '720p · 30 fps', width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
   '480p30': {
@@ -19,23 +25,51 @@ export const defaultScreenQuality: ScreenQuality = '1080p60'
 
 export function screenCaptureOptions(quality: ScreenQuality): ScreenShareCaptureOptions {
   const { width, height, fps } = screenQualities[quality]
-  return { audio: true, contentHint: 'motion', resolution: { width, height, frameRate: fps } }
+  // Keep this inside `audio`: the installed SDK does not forward its top-level
+  // suppressLocalAudioPlayback option into getDisplayMedia's audio constraints.
+  const audio: AudioCaptureOptions & { suppressLocalAudioPlayback: boolean } = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    channelCount: 2,
+    suppressLocalAudioPlayback: false,
+  }
+  return {
+    audio,
+    selfBrowserSurface: 'exclude',
+    systemAudio: 'include',
+    contentHint: 'motion',
+    resolution: { width, height, frameRate: fps },
+  }
+}
+
+export function screenVideoCodec(): 'h264' | 'vp8' {
+  // H.264 may use the GPU encoder. Availability does not guarantee acceleration.
+  const codecs =
+    typeof RTCRtpSender !== 'undefined'
+      ? RTCRtpSender.getCapabilities?.('video')?.codecs
+      : undefined
+  return codecs?.some((codec) => codec.mimeType.toLowerCase() === 'video/h264') ? 'h264' : 'vp8'
 }
 
 export function screenPublishOptions(quality: ScreenQuality): TrackPublishOptions {
   const { height, fps, bitrate } = screenQualities[quality]
   return {
     // Leave source unset: setScreenShareEnabled also uses these options for shared audio.
-    videoCodec: 'vp8',
+    videoCodec: screenVideoCodec(),
+    audioPreset: AudioPresets.musicHighQualityStereo,
+    forceStereo: true,
+    dtx: false,
     degradationPreference: 'maintain-framerate',
     screenShareEncoding: { maxBitrate: bitrate, maxFramerate: fps, priority: 'high' },
     simulcast: true,
-    // Explicit motion-friendly layers avoid the SDK's low-fps screen presets.
+    // Preserve the selected fps on the main stream. Auxiliary streams should not
+    // compete with a running game by encoding a second 60 fps video.
     screenShareSimulcastLayers: [
       height > 480
-        ? new VideoPreset(854, 480, 1_000_000, 30)
-        : new VideoPreset(640, 360, 600_000, 30),
-      ...(height > 720 ? [new VideoPreset(1280, 720, 4_000_000, 60)] : []),
+        ? new VideoPreset(854, 480, 800_000, 15)
+        : new VideoPreset(640, 360, 500_000, 15),
+      ...(height > 720 ? [new VideoPreset(1280, 720, 2_500_000, 30)] : []),
     ],
   }
 }

@@ -93,7 +93,13 @@ export class VoiceMicrophone {
         }
         if (!valid()) return
         // The processed stream is already installed before any audio is transmitted.
-        await local.publishTrack(track, { source: Track.Source.Microphone, dtx: true, red: true })
+        await local.publishTrack(track, {
+          source: Track.Source.Microphone,
+          dtx: true,
+          red: true,
+          // Release the recording device when muted so the OS can leave call mode.
+          stopMicTrackOnMute: true,
+        })
         if (!valid()) {
           await local.unpublishTrack(track)
           return

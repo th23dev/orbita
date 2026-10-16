@@ -44,6 +44,40 @@
   max-height: none;
   object-fit: contain;
 }
+.stream-video[hidden] {
+  display: none;
+}
+.stream-own-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 210px;
+  padding: 28px 24px;
+  color: #a5a7b0;
+  text-align: center;
+}
+.stream-own-placeholder > svg {
+  color: #b7ef78;
+}
+.stream-own-placeholder strong {
+  color: #f2f3f5;
+  font-size: 15px;
+}
+.stream-own-placeholder p {
+  max-width: 380px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.stream-own-notice {
+  padding: 10px 14px;
+  color: #a5a7b0;
+  background: #191b1f;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .stream-video .mirrored-video {
   transform: scaleX(-1);
 }
@@ -341,17 +375,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .call-footer-meta {
-    gap: 8px;
-    line-height: 1.5;
-  }
-  .call-footer-meta > span[role='status'] {
-    flex-basis: 100%;
-    order: 3;
-    text-align: center;
-  }
-  .call-audio-settings {
+  .call-options-trigger,
+  .call-options-close,
+  .call-audio-settings,
+  .call-quality select {
     min-height: 44px;
+  }
+  .call-options-close {
+    width: 44px;
+  }
+  .call-quality select {
+    font-size: 16px;
   }
   .stream-label {
     padding: 6px 10px;

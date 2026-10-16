@@ -125,199 +125,196 @@ function Toggle({
 }
 
 export function AudioSettings({ close }: { close: () => void }) {
+  return (
+    <Modal title="Voz e áudio" close={close} className="audio-settings-modal">
+      <AudioSettingsContent />
+    </Modal>
+  )
+}
+
+export function AudioSettingsContent() {
   const preferences = useAudioPreferences()
   const { devices, error, authorize, refresh } = useAudioDevices()
   const test = useMicrophoneTest(preferences)
   const custom = (patch: Partial<AudioPreferences>) =>
     updateAudioPreferences({ ...patch, profile: 'custom' })
   return (
-    <Modal title="Voz e áudio" close={close} className="audio-settings-modal">
-      <div className="audio-settings">
-        <div className="audio-settings-intro">
-          <span>
-            <AudioLines size={25} />
-          </span>
-          <div>
-            <h3>Sua voz, do seu jeito.</h3>
-            <p>Ajuste seus dispositivos e encontre o som ideal para a conversa.</p>
-          </div>
-        </div>
-        <div className="audio-device-grid">
-          <div>
-            <DeviceSelect
-              kind="audioinput"
-              devices={devices}
-              value={preferences.inputDevice}
-              onChange={(inputDevice) => updateAudioPreferences({ inputDevice })}
-            />
-            <VolumeSlider input value={preferences.inputVolume} />
-          </div>
-          <div>
-            <DeviceSelect
-              kind="audiooutput"
-              devices={devices}
-              value={preferences.outputDevice}
-              onChange={(outputDevice) => updateAudioPreferences({ outputDevice })}
-            />
-            <VolumeSlider value={preferences.outputVolume} />
-          </div>
-        </div>
-        <div className="audio-device-help">
-          <button onClick={() => void authorize()}>Permitir acesso e atualizar dispositivos</button>
-          <span>Preferências salvas neste dispositivo.</span>
-        </div>
-        {!canSelectAudioOutput() && (
-          <p className="audio-help">
-            Este navegador usa a saída padrão. Escolha outro alto-falante nas configurações do
-            sistema.
-          </p>
-        )}
-        <section className="audio-test" aria-label="Teste do microfone">
-          <div className="audio-test-row">
-            <button
-              className={test.running ? 'secondary' : 'primary'}
-              disabled={test.busy}
-              onClick={() => {
-                if (test.running) test.stop()
-                else void test.start().then(refresh)
-              }}
-            >
-              <Mic size={17} />
-              {test.busy
-                ? 'Abrindo microfone…'
-                : test.running
-                  ? 'Parar teste'
-                  : 'Teste do microfone'}
-            </button>
-            <LevelMeter level={test.level} active={test.running} />
-          </div>
-          <p>Fale normalmente para conferir o nível da sua voz com os ajustes aplicados.</p>
-          {test.running && (
-            <button
-              className="audio-listen"
-              aria-pressed={test.listening}
-              onClick={() => void test.toggleListening()}
-            >
-              <Headphones size={16} />
-              {test.listening ? 'Parar de ouvir minha voz' : 'Ouvir minha voz'}
-              <small>Use fones para evitar retorno.</small>
-            </button>
-          )}
-          {!test.enhanced && test.running && (
-            <p role="status">
-              Tratamento adicional indisponível. O teste usa o processamento disponível no
-              navegador.
-            </p>
-          )}
-        </section>
-        {(error || test.error) && (
-          <p className="audio-error" role="alert">
-            {error || test.error}
-          </p>
-        )}
-        <fieldset className="audio-profiles">
-          <legend>Perfil de entrada</legend>
-          {(
-            [
-              [
-                'voice',
-                'Foco na voz',
-                'Supressão neural de ruído, controle de eco e volume de voz equilibrado.',
-              ],
-              [
-                'studio',
-                'Estúdio',
-                'Áudio sem filtros de voz. Ideal para música; prefira usar fones.',
-              ],
-              [
-                'custom',
-                'Personalizado',
-                'Escolha o tratamento e a sensibilidade do seu microfone.',
-              ],
-            ] as const
-          ).map(([value, label, description]) => (
-            <label key={value} className={preferences.profile === value ? 'selected' : ''}>
-              <input
-                type="radio"
-                name="audio-profile"
-                value={value}
-                checked={preferences.profile === value}
-                onChange={() => updateAudioPreferences({ profile: value })}
-              />
-              <span>
-                <strong>{label}</strong>
-                <small>{description}</small>
-              </span>
-            </label>
-          ))}
-        </fieldset>
-        {preferences.profile === 'custom' && (
-          <section className="audio-advanced" aria-label="Tratamento personalizado">
-            <label className="audio-field">
-              <span>Supressão de ruído</span>
-              <select
-                value={preferences.noiseSuppression}
-                onChange={(event) =>
-                  custom({
-                    noiseSuppression: event.target.value as AudioPreferences['noiseSuppression'],
-                  })
-                }
-              >
-                <option value="balanced">Equilibrada · recomendada</option>
-                <option value="strong">Intensa · ambientes barulhentos</option>
-                <option value="off">Desligada</option>
-              </select>
-            </label>
-            <p className="audio-help">
-              A redução intensa pode atenuar falas muito baixas. Use o teste para comparar.
-            </p>
-            <Toggle
-              label="Sensibilidade automática"
-              description="Adapta a redução de ruído nas pausas à intensidade do ambiente."
-              checked={preferences.autoSensitivity}
-              change={(autoSensitivity) => custom({ autoSensitivity })}
-            />
-            {!preferences.autoSensitivity && (
-              <label className="audio-field">
-                <span>
-                  Limiar de entrada <output>{preferences.sensitivity} dB</output>
-                </span>
-                <input
-                  aria-label="Limiar de entrada"
-                  type="range"
-                  min="-70"
-                  max="-20"
-                  value={preferences.sensitivity}
-                  onChange={(event) => custom({ sensitivity: Number(event.target.value) })}
-                />
-                <small>
-                  Valores menores preservam vozes mais baixas. Atua com a supressão ligada.
-                </small>
-              </label>
-            )}
-            <Toggle
-              label="Cancelamento de eco"
-              description="Reduz o som dos alto-falantes que retorna ao microfone."
-              checked={preferences.echoCancellation}
-              change={(echoCancellation) => custom({ echoCancellation })}
-            />
-            <Toggle
-              label="Ganho automático"
-              description="Ajuda a manter o volume da voz consistente."
-              checked={preferences.autoGainControl}
-              change={(autoGainControl) => custom({ autoGainControl })}
-            />
-          </section>
-        )}
-        <div className="audio-settings-note">
-          <SlidersHorizontal size={16} />
-          <span>
-            Os ajustes são aplicados à sua voz nas chamadas. Cada participante controla o próprio
-            microfone.
-          </span>
+    <div className="audio-settings">
+      <div className="audio-settings-intro">
+        <span>
+          <AudioLines size={25} />
+        </span>
+        <div>
+          <h3>Sua voz, do seu jeito.</h3>
+          <p>Ajuste seus dispositivos e encontre o som ideal para a conversa.</p>
         </div>
       </div>
-    </Modal>
+      <div className="audio-device-grid">
+        <div>
+          <DeviceSelect
+            kind="audioinput"
+            devices={devices}
+            value={preferences.inputDevice}
+            onChange={(inputDevice) => updateAudioPreferences({ inputDevice })}
+          />
+          <VolumeSlider input value={preferences.inputVolume} />
+        </div>
+        <div>
+          <DeviceSelect
+            kind="audiooutput"
+            devices={devices}
+            value={preferences.outputDevice}
+            onChange={(outputDevice) => updateAudioPreferences({ outputDevice })}
+          />
+          <VolumeSlider value={preferences.outputVolume} />
+        </div>
+      </div>
+      <div className="audio-device-help">
+        <button onClick={() => void authorize()}>Permitir acesso e atualizar dispositivos</button>
+        <span>Preferências salvas neste dispositivo.</span>
+      </div>
+      {!canSelectAudioOutput() && (
+        <p className="audio-help">
+          Este navegador usa a saída padrão. Escolha outro alto-falante nas configurações do
+          sistema.
+        </p>
+      )}
+      <section className="audio-test" aria-label="Teste do microfone">
+        <div className="audio-test-row">
+          <button
+            className={test.running ? 'secondary' : 'primary'}
+            disabled={test.busy}
+            onClick={() => {
+              if (test.running) test.stop()
+              else void test.start().then(refresh)
+            }}
+          >
+            <Mic size={17} />
+            {test.busy ? 'Abrindo microfone…' : test.running ? 'Parar teste' : 'Teste do microfone'}
+          </button>
+          <LevelMeter level={test.level} active={test.running} />
+        </div>
+        <p>Fale normalmente para conferir o nível da sua voz com os ajustes aplicados.</p>
+        {test.running && (
+          <button
+            className="audio-listen"
+            aria-pressed={test.listening}
+            onClick={() => void test.toggleListening()}
+          >
+            <Headphones size={16} />
+            {test.listening ? 'Parar de ouvir minha voz' : 'Ouvir minha voz'}
+            <small>Use fones para evitar retorno.</small>
+          </button>
+        )}
+        {!test.enhanced && test.running && (
+          <p role="status">
+            Tratamento adicional indisponível. O teste usa o processamento disponível no navegador.
+          </p>
+        )}
+      </section>
+      {(error || test.error) && (
+        <p className="audio-error" role="alert">
+          {error || test.error}
+        </p>
+      )}
+      <fieldset className="audio-profiles">
+        <legend>Perfil de entrada</legend>
+        {(
+          [
+            [
+              'voice',
+              'Foco na voz',
+              'Supressão neural de ruído, controle de eco e volume de voz equilibrado.',
+            ],
+            [
+              'studio',
+              'Estúdio',
+              'Áudio sem filtros de voz. Ideal para música; prefira usar fones.',
+            ],
+            ['custom', 'Personalizado', 'Escolha o tratamento e a sensibilidade do seu microfone.'],
+          ] as const
+        ).map(([value, label, description]) => (
+          <label key={value} className={preferences.profile === value ? 'selected' : ''}>
+            <input
+              type="radio"
+              name="audio-profile"
+              value={value}
+              checked={preferences.profile === value}
+              onChange={() => updateAudioPreferences({ profile: value })}
+            />
+            <span>
+              <strong>{label}</strong>
+              <small>{description}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      {preferences.profile === 'custom' && (
+        <section className="audio-advanced" aria-label="Tratamento personalizado">
+          <label className="audio-field">
+            <span>Supressão de ruído</span>
+            <select
+              value={preferences.noiseSuppression}
+              onChange={(event) =>
+                custom({
+                  noiseSuppression: event.target.value as AudioPreferences['noiseSuppression'],
+                })
+              }
+            >
+              <option value="balanced">Equilibrada · recomendada</option>
+              <option value="strong">Intensa · ambientes barulhentos</option>
+              <option value="off">Desligada</option>
+            </select>
+          </label>
+          <p className="audio-help">
+            A redução intensa pode atenuar falas muito baixas. Use o teste para comparar.
+          </p>
+          <Toggle
+            label="Sensibilidade automática"
+            description="Adapta a redução de ruído nas pausas à intensidade do ambiente."
+            checked={preferences.autoSensitivity}
+            change={(autoSensitivity) => custom({ autoSensitivity })}
+          />
+          {!preferences.autoSensitivity && (
+            <label className="audio-field">
+              <span>
+                Limiar de entrada <output>{preferences.sensitivity} dB</output>
+              </span>
+              <input
+                aria-label="Limiar de entrada"
+                type="range"
+                min="-70"
+                max="-20"
+                value={preferences.sensitivity}
+                onChange={(event) => custom({ sensitivity: Number(event.target.value) })}
+              />
+              <small>
+                Valores menores preservam vozes mais baixas. Atua com a supressão ligada.
+              </small>
+            </label>
+          )}
+          <Toggle
+            label="Cancelamento de eco"
+            description="Reduz o som dos alto-falantes que retorna ao microfone."
+            checked={preferences.echoCancellation}
+            change={(echoCancellation) => custom({ echoCancellation })}
+          />
+          <Toggle
+            label="Ganho automático"
+            description="Ajuda a manter o volume da voz consistente."
+            checked={preferences.autoGainControl}
+            change={(autoGainControl) => custom({ autoGainControl })}
+          />
+        </section>
+      )}
+      <div className="audio-settings-note">
+        <SlidersHorizontal size={16} />
+        <span>
+          Os ajustes são aplicados à sua voz nas chamadas. Cada participante controla o próprio
+          microfone.
+        </span>
+      </div>
+    </div>
   )
 }
 

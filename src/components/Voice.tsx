@@ -26,10 +26,10 @@ import {
   Maximize,
   Minimize,
   X,
-  Radio,
   Video,
   VideoOff,
   Settings2,
+  ChevronRight,
 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
 import { addSound, deleteSound } from '../lib/files'
@@ -42,6 +42,8 @@ import { featuredStream } from '../lib/call-layout'
 import type { VoicePresence } from '../hooks/useVoicePresence'
 import { VoiceMicrophone } from '../lib/voice-microphone'
 import { StreamPlayer } from './StreamPlayer'
+import { CallOptions } from './CallOptions'
+import { cameraCaptureOptions, useVideoPreferences } from '../lib/video-preferences'
 import {
   changePublishedScreenQuality,
   defaultScreenQuality,
@@ -126,6 +128,7 @@ export function Voice({
     () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
   )
   const audioPreferences = useAudioPreferences()
+  const videoPreferences = useVideoPreferences()
   const [enhancedAudio, setEnhancedAudio] = useState<boolean | null>(null)
   const [microphone] = useState(
     () => new VoiceMicrophone(room, getAudioPreferences(), setEnhancedAudio),
@@ -436,7 +439,7 @@ export function Voice({
     }
     setCameraBusy(true)
     try {
-      const track = await createLocalVideoTrack({ resolution: { width: 1280, height: 720 } })
+      const track = await createLocalVideoTrack(cameraCaptureOptions())
       if (!mounted.current) {
         track.stop()
         return
@@ -660,7 +663,7 @@ export function Voice({
             <div className="call-preview">
               <span className="preview-badge">SUA PRÉVIA</span>
               {previewCamera ? (
-                <MediaTrack track={previewCamera} camera mirror />
+                <MediaTrack track={previewCamera} camera mirror={videoPreferences.mirror} />
               ) : (
                 <div className="preview-orbit">
                   <Avatar profile={me} />
@@ -744,7 +747,8 @@ export function Voice({
                   track={featured.track}
                   name={featured.name}
                   camera={featured.kind === 'camera'}
-                  mirror={featured.kind === 'camera' && featured.local}
+                  local={featured.local}
+                  mirror={featured.kind === 'camera' && featured.local && videoPreferences.mirror}
                   report={report}
                 />
               </div>
@@ -770,7 +774,11 @@ export function Voice({
                       </span>
                     )}
                     {camera?.track && !camera.isMuted && camera.trackSid !== featured?.sid ? (
-                      <MediaTrack track={camera.track} camera mirror={person.isLocal} />
+                      <MediaTrack
+                        track={camera.track}
+                        camera
+                        mirror={person.isLocal && videoPreferences.mirror}
+                      />
                     ) : (
                       <div className="participant-avatar">
                         <Avatar profile={profile} />
@@ -918,9 +926,13 @@ export function Voice({
                     setCameraBusy(true)
                     try {
                       const enabled = !room.localParticipant.isCameraEnabled
-                      await room.localParticipant.setCameraEnabled(enabled, {
-                        resolution: { width: 1280, height: 720 },
-                      })
+                      // Release the old capture so the next enable uses the saved device and quality.
+                      const previous = room.localParticipant.getTrackPublication(
+                        Track.Source.Camera,
+                      )?.track
+                      if (previous) await room.localParticipant.unpublishTrack(previous, true)
+                      if (enabled)
+                        await room.localParticipant.setCameraEnabled(true, cameraCaptureOptions())
                       setVersion((v) => v + 1)
                     } catch {
                       throw new Error(
@@ -1006,29 +1018,35 @@ export function Voice({
             </div>
           </div>
         )}
-        <div className="call-footer-meta">
-          <button
-            className="call-audio-settings"
-            onClick={openAudioSettings}
-            title="Configurar dispositivos, volumes e tratamento de voz"
-          >
-            <Settings2 size={14} /> Voz e áudio
-          </button>
-          <span role="status">
-            {processingPreferences(audioPreferences).noiseSuppression === 'off'
-              ? 'Supressão desligada'
-              : enhancedAudio === false
-                ? 'Supressão neural indisponível · filtro do navegador'
-                : enhancedAudio === true
-                  ? 'Supressão neural ativa'
-                  : 'Tratamento de voz ao ligar o microfone'}
-          </span>
-          <span>
-            <Radio size={12} />
-            {joined
-              ? status
-              : `${startWithMic ? 'Microfone ligado' : 'Microfone desligado'} · ${previewCamera ? 'Câmera ligada' : 'Câmera desligada'} ao entrar`}
-          </span>
+        <CallOptions status={status} connected={connected}>
+          <div className="call-options-audio">
+            <span className="call-options-label">Áudio</span>
+            <button
+              className="call-audio-settings"
+              onClick={(event) => {
+                event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover()
+                openAudioSettings()
+              }}
+              title="Configurar dispositivos, volumes e tratamento de voz"
+            >
+              <Settings2 size={14} /> Voz e áudio
+              <ChevronRight size={14} />
+            </button>
+            <span role="status">
+              {processingPreferences(audioPreferences).noiseSuppression === 'off'
+                ? 'Supressão desligada'
+                : enhancedAudio === false
+                  ? 'Supressão neural indisponível · filtro do navegador'
+                  : enhancedAudio === true
+                    ? 'Supressão neural ativa'
+                    : 'Tratamento de voz ao ligar o microfone'}
+            </span>
+          </div>
+          {!joined && (
+            <p className="call-options-preview">
+              {`${startWithMic ? 'Microfone ligado' : 'Microfone desligado'} · ${previewCamera ? 'Câmera ligada' : 'Câmera desligada'} ao entrar`}
+            </p>
+          )}
           {joined && (
             <label className="call-quality">
               Minha transmissão
@@ -1066,7 +1084,7 @@ export function Voice({
               </select>
             </label>
           )}
-        </div>
+        </CallOptions>
       </footer>
       <aside
         className="soundboard"

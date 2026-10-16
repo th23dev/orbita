@@ -1,6 +1,26 @@
 # Voz e áudio
 
-Abra os menus de microfone e fone ao lado do perfil, ou **Configurações → Voz e áudio**. Na sala há também o botão **Voz e áudio**. As preferências ficam neste navegador e são aplicadas durante a chamada.
+## Som de outros aplicativos ao ligar o microfone
+
+Se jogos, músicas ou vídeos ficam mais baixos ao ativar o microfone, confira no
+Windows **Som → Mais configurações de som → Comunicações → Não fazer nada**.
+O Windows pode reduzir automaticamente o volume de sessões que não são de comunicação;
+isso é independente do volume de saída do aplicativo. Consulte a
+[documentação da Microsoft sobre atenuação de áudio](https://learn.microsoft.com/en-us/windows/win32/coreaudio/stream-attenuation).
+
+Se houver distorção mesmo com essa opção desativada, compare o perfil **Estúdio**
+(sem processamento de voz) com o perfil habitual e confira o dispositivo de entrada.
+Esse teste ajuda a separar processamento do navegador de comportamento do driver;
+não identifica sozinho a causa. Em dispositivos Bluetooth, usar o microfone também
+pode alterar o modo de reprodução, conforme o suporte do dispositivo e do sistema.
+
+Nas chamadas, silenciar o microfone agora encerra a captura do dispositivo, permitindo
+que o sistema saia do modo de comunicação. Ao reativá-lo, o SDK readquire a entrada
+e reinicia o processamento de voz. Não há alteração automática nas preferências do Windows.
+
+## Configurações
+
+Abra os menus de microfone e fone ao lado do perfil, ou **Configurações → Voz e áudio**. Na sala, clique no indicador de conexão no rodapé para abrir **Ajustes da chamada → Voz e áudio**. Esse painel também mostra o estado do tratamento de voz e as opções de qualidade da transmissão. As preferências ficam neste navegador e são aplicadas durante a chamada.
 
 - Entrada: dispositivo, volume de 0 a 200% e teste com medidor do sinal tratado. **Ouvir minha voz** ativa a reprodução local; use fones. Fechar o painel ou parar o teste libera a captura. Trocar a entrada encerra o teste para que você o reinicie no novo dispositivo.
 - Saída: dispositivo e volume de 0 a 100% das faixas recebidas na chamada, incluindo compartilhamento e soundboard remoto. O volume individual de cada participante continua sendo respeitado.

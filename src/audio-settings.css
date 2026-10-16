@@ -409,12 +409,24 @@
 .call-audio-settings {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  color: #f2f3f5;
+  background: #ffffff08;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.call-audio-settings:hover {
+  background: #ffffff10;
+}
+.call-audio-settings > svg:first-child {
   color: #b7ef78;
-  background: #b7ef7816;
-  padding: 7px 10px;
-  border-radius: 6px;
-  font-size: 11px;
+}
+.call-audio-settings > svg:last-child {
+  margin-left: auto;
+  color: #a5a7b0;
 }
 .settings-audio-link {
   margin-bottom: 22px;

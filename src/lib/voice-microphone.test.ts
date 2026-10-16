@@ -59,6 +59,10 @@ describe('call microphone lifecycle', () => {
     await Promise.all([mic.setEnabled(true), mic.setEnabled(true)])
     expect(local.createTracks).toHaveBeenCalledOnce()
     expect(local.publishTrack).toHaveBeenCalledOnce()
+    expect(local.publishTrack).toHaveBeenCalledWith(
+      track,
+      expect.objectContaining({ stopMicTrackOnMute: true }),
+    )
     expect(vi.mocked(track.setProcessor).mock.invocationCallOrder[0]).toBeLessThan(
       local.publishTrack.mock.invocationCallOrder[0],
     )

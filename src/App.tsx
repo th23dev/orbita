@@ -879,7 +879,6 @@ function Workspace({ session }: { session: Session }) {
           refresh={data.refresh}
           close={() => setModal(null)}
           report={report}
-          openAudioSettings={() => setModal('audio')}
         />
       )}
       {modal === 'audio' && <AudioSettings close={() => setModal(null)} />}
