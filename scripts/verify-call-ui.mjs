@@ -344,10 +344,10 @@ try {
   await pages[1].waitForFunction(
     () => document.querySelector('.screen-stream video')?.videoWidth > 0,
   )
-  await pages[1].getByLabel('Qualidade de transmissão').selectOption('720')
-  await expect(pages[1].getByLabel('Qualidade de transmissão')).toHaveValue('720')
-  await page.getByLabel('Qualidade de transmissão').selectOption('720')
-  await expect(page.getByLabel('Qualidade de transmissão')).toHaveValue('720')
+  await pages[1].getByLabel('Qualidade para assistir').selectOption('720p30')
+  await expect(pages[1].getByLabel('Qualidade para assistir')).toHaveValue('720p30')
+  await page.getByLabel('Qualidade de transmissão').selectOption('720p30')
+  await expect(page.getByLabel('Qualidade de transmissão')).toHaveValue('720p30')
   await page.screenshot({ path: 'test-results/call-screen-desktop.png' })
   const cameraTile = await page.locator('.participant').first().boundingBox()
   if (
@@ -385,8 +385,8 @@ try {
   await expect(page.locator('.streams .stream-label')).toContainText('Tela de Rafa · QA')
   await pages[1].evaluate(() => clearInterval(window.qaSecondScreenTimer))
   await page.getByRole('button', { name: 'Parar transmissão', exact: true }).click()
-  await expect(page.getByLabel('Qualidade de transmissão')).toHaveCount(0)
-  await expect(pages[1].getByLabel('Qualidade de transmissão')).toHaveCount(0)
+  await expect(page.getByLabel('Qualidade de transmissão')).toBeVisible()
+  await expect(pages[1].getByLabel('Qualidade para assistir')).toHaveCount(0)
   await expect(page.locator('.featured-camera')).toHaveCount(1)
   await page.evaluate(() => clearInterval(window.qaScreenTimer))
   await page.getByRole('button', { name: 'Sair da chamada', exact: true }).click()

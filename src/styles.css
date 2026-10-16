@@ -2430,7 +2430,8 @@ progress {
   font-size: 10px;
 }
 .call-quality select {
-  width: 70px;
+  width: auto;
+  max-width: 200px;
   padding: 4px;
   font-size: 10px;
   background: #25262b;

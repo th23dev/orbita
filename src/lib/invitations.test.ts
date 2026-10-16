@@ -9,6 +9,7 @@ describe('server invitations', () => {
       `  ${code}  `,
       `#/invite/${code}`,
       `https://th23dev.github.io/orbita/#/invite/${code}`,
+      `https://orbita.undo.it/#/invite/${code}`,
     ])
       expect(invitationCode(input)).toBe(code)
   })
@@ -28,6 +29,11 @@ describe('server invitations', () => {
     )
     expect(invitationLink(code, 'https://th23dev.github.io/orbita/?code=auth#/channel/abc')).toBe(
       `https://th23dev.github.io/orbita/#/invite/${code}`,
+    )
+  })
+  it('preserves the custom domain and removes login parameters from shared invitations', () => {
+    expect(invitationLink(code, 'https://orbita.undo.it/?code=auth#/channel/abc')).toBe(
+      `https://orbita.undo.it/#/invite/${code}`,
     )
   })
 })

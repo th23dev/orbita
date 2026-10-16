@@ -1,6 +1,7 @@
 // Credentials stay in process memory and are sent only to api.github.com.
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
+import { Resolver } from 'node:dns/promises'
 const result = spawnSync('git', ['credential', 'fill'], {
   input: 'protocol=https\nhost=github.com\n\n',
   encoding: 'utf8',
@@ -62,6 +63,35 @@ if (process.argv[2] === 'create') {
 if (process.argv[2] === 'pages') {
   await request('/repos/th23dev/orbita/pages', 'POST', { build_type: 'workflow' })
   console.log('GitHub Pages enabled with GitHub Actions.')
+}
+if (process.argv[2] === 'domain-status') {
+  const pages = await request('/repos/th23dev/orbita/pages')
+  console.log(JSON.stringify({ url: pages.html_url, domain: pages.cname, https: pages.https_enforced, certificate: pages.https_certificate }, null, 2))
+}
+if (process.argv[2] === 'domain') {
+  // Do not redirect the working Pages URL until the FreeDNS record exists.
+  const domain = 'orbita.undo.it'
+  for (const server of ['1.1.1.1', '8.8.8.8']) {
+    const resolver = new Resolver({ timeout: 5000, tries: 2 })
+    resolver.setServers([server])
+    const records = await resolver.resolve4(domain)
+    const githubPagesIPs = ['185.199.108.153', '185.199.109.153', '185.199.110.153', '185.199.111.153']
+    if (!records.length || !records.every((address) => githubPagesIPs.includes(address)))
+      throw new Error(`${domain} must point only to GitHub Pages IPs before activation (${server}).`)
+  }
+  const pages = await request('/repos/th23dev/orbita/pages')
+  if (pages.cname && pages.cname !== domain)
+    throw new Error(`Pages already uses another domain: ${pages.cname}. Inspect it before replacing.`)
+  await request('/repos/th23dev/orbita/pages', 'PUT', { cname: domain })
+  console.log(`Custom domain configured: ${domain}. Check certificate provisioning before enforcing HTTPS.`)
+}
+if (process.argv[2] === 'domain-https') {
+  const pages = await request('/repos/th23dev/orbita/pages')
+  if (pages.cname !== 'orbita.undo.it') throw new Error('The expected custom domain is not configured.')
+  if (pages.https_certificate?.state !== 'approved')
+    throw new Error(`Certificate is not ready: ${pages.https_certificate?.state || 'pending'}.`)
+  await request('/repos/th23dev/orbita/pages', 'PUT', { https_enforced: true })
+  console.log('HTTPS enforced for orbita.undo.it.')
 }
 if (process.argv[2] === 'configure-supabase') {
   const env = Object.fromEntries(

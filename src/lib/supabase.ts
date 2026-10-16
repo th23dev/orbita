@@ -29,7 +29,7 @@ export function check<T extends { data?: unknown; error: { message: string } | n
   if (result.error) throw new Error(result.error.message)
   return result.data as NonNullable<T['data']>
 }
-export const redirectUrl = () => window.location.origin + import.meta.env.BASE_URL
+export const redirectUrl = () => new URL(import.meta.env.BASE_URL, window.location.href).href
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Não foi possível concluir. Tente novamente.'
 }

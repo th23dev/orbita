@@ -30,6 +30,35 @@ As chaves atuais foram emitidas pela autorização da CLI. Revogar essa autoriza
 
 ## Validação com serviços reais
 
+### Qualidade de transmissão
+
+A tela inicia em 1080p com alvo de 60 fps e limite de 8 Mbps para a camada principal.
+O menu **Minha transmissão** permite selecionar 720p60 (4 Mbps), 720p30 (2,5 Mbps)
+ou 480p30 (1 Mbps), inclusive antes de compartilhar. A mudança reutiliza a captura
+e republica apenas o vídeo da tela; o áudio compartilhado, a câmera e o microfone
+permanecem independentes. Se a publicação falhar, tenta restaurar a configuração anterior.
+
+O menu **Assistir em** limita a resolução/fps recebidos sem alterar a transmissão
+dos outros participantes. Essa preferência também vale para telas que começarem depois.
+Simulcast, adaptive stream e dynacast continuam habilitados. O encoder prioriza
+fluidez quando a conexão piora. Os 60 fps dependem da captura, do navegador,
+do dispositivo e da rede; o menu representa o alvo, não uma medição.
+As opções seguem a [API de publicação do LiveKit](https://docs.livekit.io/reference/client-sdk-js/interfaces/TrackPublishOptions.html).
+
+Com o app local em `http://127.0.0.1:5173`, execute:
+
+```powershell
+node scripts/verify-stream.mjs --live
+```
+
+Esse teste usa duas contas temporárias e uma tela sintética animada, verifica o
+encoder 1080p60 e os quadros recebidos pelo LiveKit real, reduz/restaura a qualidade,
+confere que a permissão de captura não é solicitada novamente e testa a exclusão
+do servidor pela API (dono permitido, membro bloqueado). Todos os dados temporários
+são removidos. Não substitui testar a captura real em dispositivos diferentes.
+
+### Autenticação e áudio
+
 ```powershell
 node scripts/verify-livekit.mjs --live
 ```

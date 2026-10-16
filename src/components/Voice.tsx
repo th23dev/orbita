@@ -43,6 +43,15 @@ import type { VoicePresence } from '../hooks/useVoicePresence'
 import { VoiceMicrophone } from '../lib/voice-microphone'
 import { StreamPlayer } from './StreamPlayer'
 import {
+  changePublishedScreenQuality,
+  defaultScreenQuality,
+  screenCaptureOptions,
+  screenPublishOptions,
+  screenQualities,
+  setReceivedScreenQuality,
+  type ScreenQuality,
+} from '../lib/screen-quality'
+import {
   canSelectAudioOutput,
   getAudioPreferences,
   processingPreferences,
@@ -129,7 +138,7 @@ export function Voice({
     [, setVersion] = useState(0)
   const [sounds, setSounds] = useState<Sound[]>([]),
     [volume, setVolume] = useState(initialVolume),
-    [quality, setQuality] = useState('1080'),
+    [quality, setQuality] = useState<ScreenQuality>(defaultScreenQuality),
     [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [soundboardOpen, setSoundboardOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -137,6 +146,16 @@ export function Voice({
   const [previewCamera, setPreviewCamera] = useState<LocalVideoTrack | null>(null)
   const [cameraBusy, setCameraBusy] = useState(false)
   const [qualityBusy, setQualityBusy] = useState(false)
+  const [receiveQuality, setReceiveQuality] = useState<ScreenQuality>(defaultScreenQuality)
+  const screenBusy = useRef(false)
+  useEffect(() => {
+    const update = () => setReceivedScreenQuality(room, receiveQuality)
+    update()
+    room.on(RoomEvent.TrackSubscribed, update)
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, update)
+    }
+  }, [room, receiveQuality])
   const [selectedStream, setSelectedStream] = useState<string | null>(null)
   const [showParticipants, setShowParticipants] = useState(true)
   const [playingSound, setPlayingSound] = useState<string | null>(null)
@@ -432,21 +451,15 @@ export function Voice({
       setCameraBusy(false)
     }
   }
-  async function changeScreenQuality(value: string) {
+  async function changeScreenQuality(value: ScreenQuality) {
+    if (screenBusy.current || value === quality) return
+    screenBusy.current = true
     setQualityBusy(true)
     try {
-      const dimensions = { width: value === '1080' ? 1920 : 1280, height: Number(value) }
-      const local = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
-      if (local)
-        await local.mediaStreamTrack.applyConstraints({
-          width: { ideal: dimensions.width, max: dimensions.width },
-          height: { ideal: dimensions.height, max: dimensions.height },
-          frameRate: { max: 15 },
-        })
-      for (const participant of room.remoteParticipants.values())
-        participant.getTrackPublication(Track.Source.ScreenShare)?.setVideoDimensions(dimensions)
+      await changePublishedScreenQuality(room, value)
       setQuality(value)
     } finally {
+      screenBusy.current = false
       setQualityBusy(false)
     }
   }
@@ -930,7 +943,7 @@ export function Voice({
             <div className="call-control-group">
               <button
                 className={`call-control ${room.localParticipant.isScreenShareEnabled ? 'active' : ''}`}
-                disabled={!connected || joining}
+                disabled={!connected || joining || qualityBusy}
                 title={
                   room.localParticipant.isScreenShareEnabled
                     ? 'Parar transmissão'
@@ -944,18 +957,20 @@ export function Voice({
                 aria-pressed={room.localParticipant.isScreenShareEnabled}
                 onClick={() =>
                   void run(async () => {
-                    await room.localParticipant.setScreenShareEnabled(
-                      !room.localParticipant.isScreenShareEnabled,
-                      {
-                        audio: true,
-                        resolution: {
-                          width: quality === '1080' ? 1920 : 1280,
-                          height: Number(quality),
-                          frameRate: 15,
-                        },
-                      },
-                    )
-                    setVersion((v) => v + 1)
+                    if (screenBusy.current) return
+                    screenBusy.current = true
+                    setQualityBusy(true)
+                    try {
+                      await room.localParticipant.setScreenShareEnabled(
+                        !room.localParticipant.isScreenShareEnabled,
+                        screenCaptureOptions(quality),
+                        screenPublishOptions(quality),
+                      )
+                      setVersion((v) => v + 1)
+                    } finally {
+                      screenBusy.current = false
+                      setQualityBusy(false)
+                    }
                   })
                 }
               >
@@ -1014,17 +1029,40 @@ export function Voice({
               ? status
               : `${startWithMic ? 'Microfone ligado' : 'Microfone desligado'} · ${previewCamera ? 'Câmera ligada' : 'Câmera desligada'} ao entrar`}
           </span>
-          {joined && screens.length > 0 && (
+          {joined && (
             <label className="call-quality">
-              Qualidade da tela
+              Minha transmissão
               <select
                 aria-label="Qualidade de transmissão"
                 value={quality}
-                onChange={(e) => void run(() => changeScreenQuality(e.target.value))}
+                onChange={(e) =>
+                  void run(() => changeScreenQuality(e.target.value as ScreenQuality))
+                }
                 disabled={qualityBusy || !connected}
+                title="Reduza a resolução ou os fps se a transmissão travar."
               >
-                <option value="1080">1080p</option>
-                <option value="720">720p</option>
+                {Object.entries(screenQualities).map(([value, preset]) => (
+                  <option key={value} value={value}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {joined && screens.some((screen) => !screen.local) && (
+            <label className="call-quality">
+              Assistir em
+              <select
+                aria-label="Qualidade para assistir"
+                value={receiveQuality}
+                onChange={(event) => setReceiveQuality(event.target.value as ScreenQuality)}
+                title="Reduza se sua internet estiver lenta. A qualidade depende de quem transmite."
+              >
+                {Object.entries(screenQualities).map(([value, preset]) => (
+                  <option key={value} value={value}>
+                    {preset.label}
+                  </option>
+                ))}
               </select>
             </label>
           )}
