@@ -555,9 +555,10 @@
     gap: 14px;
   }
   .server-logo-preview {
-    width: 68px;
-    height: 68px;
-    border-radius: 20px;
+    flex-basis: 47px;
+    width: 47px;
+    height: 47px;
+    border-radius: 16px;
   }
   .member-search-result {
     display: grid;
