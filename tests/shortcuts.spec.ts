@@ -1,0 +1,65 @@
+// @ts-nocheck
+import { test, expect } from '@playwright/test'
+test('Configurable shortcuts record, persist and respect typing', async ({ page }) => {
+  const errors = []
+  const updates = []
+  page.on('pageerror', error => (errors.push(error.message), console.log(error.message)))
+  await page.route('https://**/rest/v1/**', route => {
+    if (route.request().method() === 'PATCH') updates.push(route.request().postDataJSON())
+    return route.fulfill({ json: [] })
+  })
+  await page.goto('http://127.0.0.1:4173/')
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: { createRoot } } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { Settings } = await import('/src/components/Settings.tsx')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    root.render(React.createElement(Settings, {
+      me: { id: '11111111-1111-4111-8111-111111111111', display_name: 'Raffael', username: 'raffael', bio: 'Um espaço para conversar.', status: 'online' },
+      settings: { theme: 'dark' }, close: () => root.unmount(), refresh: async () => {}, report: message => { throw Error(message) },
+    }))
+  })
+  const dialog = page.getByRole('dialog')
+  const nav = page.getByRole('navigation', { name: 'Categorias de configurações' })
+  await expect(dialog).toBeVisible()
+
+  await nav.getByRole('button', { name: 'Atalhos', exact: true }).click()
+  const mic = page.getByRole('button', { name: 'Configurar atalho: Ligar ou desligar microfone', exact: true })
+  await mic.click()
+  await page.keyboard.press('Control+Shift+K')
+  await expect(mic).toHaveText('CtrlShiftK')
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('orbita:shortcuts')).microphone)).toBe('Ctrl+Shift+K')
+  const camera = page.getByRole('button', { name: 'Configurar atalho: Ligar ou desligar c\u00e2mera', exact: true })
+  await camera.click()
+  await page.keyboard.press('Control+Shift+K')
+  await expect(page.getByRole('status')).toContainText('em uso')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect(camera).toHaveText('AltShiftC')
+  await page.getByRole('button', { name: 'Remover atalho: Ligar ou desligar c\u00e2mera', exact: true }).click()
+  await expect(camera).toHaveText('Definir atalho')
+  await page.getByRole('button', { name: 'Restaurar padr\u00f5es' }).click()
+  await expect(mic).toHaveText('AltShiftM')
+  await page.setViewportSize({ width: 320, height: 700 })
+  expect(await page.locator('.user-settings-content').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/shortcuts-mobile.png' })
+  await dialog.getByRole('button', { name: 'Fechar', exact: true }).click()
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: { createRoot } } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { ShortcutHarness: Harness } = await import('/tests/fixtures/shortcuts.tsx')
+    const host = document.createElement('div'); document.body.append(host)
+    createRoot(host).render(React.createElement(Harness))
+  })
+  await expect(page.locator('#shortcut-count')).toBeVisible()
+  await page.keyboard.press('Alt+Shift+M')
+  await expect(page.locator('#shortcut-count')).toHaveText('1')
+  await page.locator('#shortcut-input').focus()
+  await expect(page.locator('#shortcut-count')).toBeVisible()
+  await page.keyboard.press('Alt+Shift+M')
+  await expect(page.locator('#shortcut-count')).toHaveText('1')
+  expect(errors).toEqual([])
+  console.log('PASS recording, persistence, conflicts, Escape, removal, reset, mobile layout, execution and typing guard')
+})

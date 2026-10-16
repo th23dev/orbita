@@ -1,3 +1,4 @@
+import { useShortcut } from './lib/shortcuts'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
@@ -71,6 +72,7 @@ function Workspace({ session }: { session: Session }) {
     [modal, setModal] = useState<string | null>(null),
     [serverId, setServerId] = useState(''),
     [selection, setSelection] = useState<{ kind: 'channel' | 'dm'; id: string } | null>(null)
+  useShortcut('settings', () => setModal('settings'))
   const [mobile, setMobile] = useState(false),
     [showMembers, setShowMembers] = useState(() => {
       if (window.matchMedia('(max-width: 1000px)').matches) return false
@@ -102,6 +104,12 @@ function Workspace({ session }: { session: Session }) {
   }, [])
   const voiceRosters = useVoicePresence(data.channels, session.user.id, callPresence)
   const currentServer = data.servers.find((s) => s.id === serverId)
+  useShortcut('sidebar', () => {
+    if (window.matchMedia('(max-width: 720px)').matches) setMobile(value => !value)
+    else setShowSidebar(value => !value)
+  })
+  useShortcut('members', () => { if (currentServer) setShowMembers(value => !value) })
+  useShortcut('audioSettings', () => setModal('audio'))
   const friendIds = data.friends
     .filter((f) => f.status === 'accepted')
     .map((f) => (f.requester_id === session.user.id ? f.addressee_id : f.requester_id))
@@ -773,10 +781,12 @@ function Workspace({ session }: { session: Session }) {
               </div>
             )}
           </div>
-          {currentServer && showMembers && (
+          {currentServer && (
             <aside
               className="members-sidebar"
               id="members-sidebar"
+              inert={!showMembers}
+              aria-hidden={!showMembers}
               aria-label="Membros da comunidade"
             >
               <div className="section-label">
@@ -884,6 +894,7 @@ function Workspace({ session }: { session: Session }) {
       {modal === 'audio' && <AudioSettings close={() => setModal(null)} />}
       {modal === 'admin' && currentServer && owner && (
         <ServerAdmin
+          manageChannel={setEditingChannel}
           server={currentServer}
           channels={serverChannels}
           people={people}

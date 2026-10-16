@@ -597,16 +597,17 @@ a {
 
 @media (min-width: 721px) {
   .app-shell.hide-channel-sidebar {
-    grid-template-columns: var(--server-rail-width) minmax(0, 1fr);
+    grid-template-columns: var(--server-rail-width) 0px minmax(0, 1fr);
   }
-  .hide-channel-sidebar .channel-sidebar { display: none; }
+  .hide-channel-sidebar .channel-sidebar { visibility: hidden; pointer-events: none; }
 }
 
 /* Workspace */
 .app-shell {
   --server-rail-width: 76px;
+  --channel-sidebar-width: 250px;
   display: grid;
-  grid-template-columns: 76px 250px minmax(0, 1fr);
+  grid-template-columns: var(--server-rail-width) var(--channel-sidebar-width) minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
@@ -1081,7 +1082,8 @@ a {
 }
 
 .members-sidebar {
-  width: 216px;
+  --members-width: 216px;
+  width: var(--members-width);
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: 7px 15px;
@@ -1138,7 +1140,8 @@ a {
 }
 
 .hide-members .members-sidebar {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .empty {
@@ -2599,6 +2602,8 @@ progress {
   display: block;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   object-fit: cover;
   object-position: center;
   border-radius: inherit;
@@ -2618,6 +2623,7 @@ progress {
   overflow: hidden;
   border-radius: 16px;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3042,13 +3048,15 @@ progress {
 
 @media (max-width: 1200px) {
   .members-sidebar {
-    width: 185px;
+    --members-width: 185px;
+    width: var(--members-width);
     padding: 5px 10px;
   }
 
   .app-shell {
     --server-rail-width: 68px;
-    grid-template-columns: 68px 225px minmax(0, 1fr);
+    --channel-sidebar-width: 225px;
+    grid-template-columns: var(--server-rail-width) var(--channel-sidebar-width) minmax(0, 1fr);
   }
 
   .server-rail {

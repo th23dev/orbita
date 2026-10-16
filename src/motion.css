@@ -1,0 +1,262 @@
+/* Short, compositor-friendly motion. Avoid animating video frames, audio meters,
+   and message histories: they update frequently during calls and scrolling. */
+:root {
+  --motion-fast: 140ms;
+  --motion-normal: 200ms;
+  --motion-panel: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.985;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+@keyframes content-enter {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes panel-left-enter {
+  from {
+    opacity: 0;
+    translate: -16px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes panel-right-enter {
+  from {
+    opacity: 0;
+    translate: 16px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .modal[open] {
+    animation: surface-enter var(--motion-panel) var(--motion-ease);
+  }
+  .modal[open]::backdrop,
+  .navigation-backdrop,
+  .members-backdrop {
+    animation: backdrop-enter var(--motion-normal) ease-out;
+  }
+
+  .audio-quick-popover,
+  .server-preview,
+  .emoji-menu,
+  .mention-menu {
+    transform-origin: bottom center;
+    animation: surface-enter var(--motion-normal) var(--motion-ease);
+  }
+
+  /* Native popovers remain in the top layer until their exit transition ends.
+     Browsers without discrete transitions still open and close normally. */
+  .call-options-popover {
+    opacity: 0;
+    translate: 0 6px;
+    transition:
+      opacity var(--motion-fast) ease,
+      translate var(--motion-normal) var(--motion-ease),
+      display var(--motion-normal) allow-discrete,
+      overlay var(--motion-normal) allow-discrete;
+  }
+  .call-options-popover:popover-open {
+    opacity: 1;
+    translate: 0 0;
+  }
+  @starting-style {
+    .call-options-popover:popover-open {
+      opacity: 0;
+      translate: 0 6px;
+    }
+  }
+
+  .user-settings-content > .user-settings-page,
+  .server-settings-modal .admin-sections > :not([hidden]),
+  .reply-composer,
+  .pending-files,
+  .toast,
+  .member-notice,
+  .stream-own-placeholder,
+  [id^='channel-group-']:not([hidden]) {
+    animation: content-enter var(--motion-normal) var(--motion-ease);
+  }
+  .voice-panel .soundboard:not([hidden]) {
+    animation: panel-right-enter var(--motion-panel) var(--motion-ease);
+  }
+  @media (min-width: 721px) {
+    .app-shell {
+      transition: grid-template-columns var(--motion-panel) var(--motion-ease);
+    }
+    .channel-sidebar {
+      transition:
+        clip-path var(--motion-panel) var(--motion-ease),
+        opacity var(--motion-panel) var(--motion-ease),
+        visibility 0s;
+    }
+    .hide-channel-sidebar .channel-sidebar {
+      transition-delay: 0s, 0s, var(--motion-panel);
+    }
+  }
+
+  .sidebar-link,
+  .user-settings-nav-group > button,
+  .server-rail button,
+  .mobile-dock button,
+  .icon-button,
+  .member-profile,
+  .stream-picker button,
+  .user-settings-theme-card {
+    transition:
+      background-color var(--motion-fast) ease,
+      color var(--motion-fast) ease,
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease,
+      transform var(--motion-normal) var(--motion-ease);
+  }
+  .primary,
+  .secondary,
+  .call-control,
+  .call-join,
+  .send-button {
+    transition:
+      background-color var(--motion-fast) ease,
+      color var(--motion-fast) ease,
+      transform var(--motion-normal) var(--motion-ease),
+      scale var(--motion-fast) var(--motion-ease);
+  }
+  :is(.primary, .secondary, .call-control, .call-join, .send-button):active:not(:disabled) {
+    scale: 0.97;
+  }
+  .audio-toggle > i,
+  .audio-toggle > i::after {
+    transition:
+      background-color var(--motion-fast) ease,
+      transform var(--motion-normal) var(--motion-ease);
+  }
+  .call-options-trigger-icons > svg:last-child {
+    transition: transform var(--motion-normal) var(--motion-ease);
+  }
+
+  @media (max-width: 720px) {
+    .server-rail,
+    .channel-sidebar {
+      transition: translate var(--motion-panel) var(--motion-ease), visibility 0s var(--motion-panel);
+    }
+    .nav-open .server-rail,
+    .nav-open .channel-sidebar {
+      transition-delay: 0s;
+    }
+  }
+}
+
+.members-sidebar {
+  opacity: 1;
+  clip-path: inset(0);
+}
+.hide-members .members-sidebar {
+  opacity: 0;
+  clip-path: inset(0 0 0 100%);
+}
+@media (min-width: 1001px) {
+  .members-sidebar { margin-left: 0; }
+  .hide-members .members-sidebar { margin-left: calc(-1 * var(--members-width)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .members-sidebar {
+    transition:
+      margin-left var(--motion-panel) var(--motion-ease),
+      clip-path var(--motion-panel) var(--motion-ease),
+      opacity var(--motion-panel) var(--motion-ease),
+      visibility 0s;
+  }
+  .hide-members .members-sidebar {
+    transition-delay: 0s, 0s, 0s, var(--motion-panel);
+  }
+}
+
+/* Keep the panel mounted so closing can finish and rapid toggles can reverse. */
+@media (min-width: 721px) {
+  .channel-sidebar {
+    width: var(--channel-sidebar-width);
+    min-width: 0;
+    overflow: hidden;
+    clip-path: inset(0);
+    opacity: 1;
+  }
+  .hide-channel-sidebar .channel-sidebar {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+}
+@media (max-width: 720px) {
+  .server-rail,
+  .channel-sidebar {
+    display: flex;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    visibility: hidden;
+    pointer-events: none;
+    translate: calc(-100% - 64px) 0;
+  }
+  .server-rail {
+    left: 0;
+    width: 64px;
+    padding: 16px 7px calc(16px + env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+  .channel-sidebar {
+    left: 64px;
+    width: calc(100vw - 88px);
+    max-width: 320px;
+    border-radius: 0 18px 18px 0;
+    overflow: hidden;
+  }
+  .nav-open .server-rail,
+  .nav-open .channel-sidebar {
+    visibility: visible;
+    pointer-events: auto;
+    translate: 0 0;
+  }
+}
+
+/* Include pseudo-elements, and override existing motion styles too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  *::backdrop {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -314,8 +314,19 @@ test('Channel participant roles and removal use the custom dialog', async ({ pag
   const { calls } = await setup(page)
   await chooseServer(page)
   await navigation(page)
-  await page.getByRole('button', { name: 'Configurações de geral', exact: true }).click()
-  await page.getByLabel('Cargo de Bob').selectOption('moderator')
+  await page.getByRole('button', { name: 'Gerenciar servidor', exact: true }).click()
+  const serverSettings = page.getByRole('dialog', { name: 'Gerenciar Nossa turma', exact: true })
+  await serverSettings.getByRole('button', { name: 'Canais e acesso', exact: true }).click()
+  await expect(serverSettings.getByRole('region', { name: 'Canais de texto' })).toBeVisible()
+  await expect(serverSettings.getByRole('region', { name: 'Canais de voz' })).toBeVisible()
+  await serverSettings.getByRole('textbox', { name: 'Buscar canais do servidor' }).fill('inexistente')
+  await expect(serverSettings.getByText('Nenhum canal encontrado', { exact: true })).toBeVisible()
+  await serverSettings.getByRole('button', { name: 'Limpar busca', exact: true }).click()
+  expect(await serverSettings.locator('.user-settings-content').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: `test-results/server-channels-${test.info().project.name}.png` })
+  await serverSettings.getByRole('button', { name: 'Configurações de geral', exact: true }).click()
+  const channelSettings = page.getByRole('dialog', { name: 'Configurações de geral', exact: true })
+  await channelSettings.getByLabel('Cargo de Bob').selectOption('moderator')
   await expect.poll(() => calls.filter((c) => c.name === 'manage_membership').length).toBe(1)
   expect(calls.find((c) => c.name === 'manage_membership')?.body).toMatchObject({
     s: server,
@@ -323,7 +334,7 @@ test('Channel participant roles and removal use the custom dialog', async ({ pag
     target_user: friend,
     action: 'promote',
   })
-  await page.getByRole('button', { name: 'Remover', exact: true }).click()
+  await channelSettings.getByRole('button', { name: 'Remover', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Remover participante?' })).toBeVisible()
   await page
     .getByRole('dialog', { name: 'Remover participante?' })
@@ -331,6 +342,8 @@ test('Channel participant roles and removal use the custom dialog', async ({ pag
     .click()
   await expect.poll(() => calls.filter((c) => c.name === 'manage_membership').length).toBe(2)
   expect(calls.filter((c) => c.name === 'manage_membership')[1].body.action).toBe('remove')
+  await page.getByRole('dialog', { name: 'Configurações de geral', exact: true }).getByRole('button', { name: 'Fechar', exact: true }).click()
+  await expect(serverSettings.getByRole('textbox', { name: 'Buscar canais do servidor' })).toBeVisible()
 })
 
 for (const failure of [false, true]) test(`Server deletion handles confirmation and ${failure ? 'request failures' : 'returning home'}`, async ({ page }) => {
@@ -339,6 +352,7 @@ for (const failure of [false, true]) test(`Server deletion handles confirmation 
   await navigation(page)
   await page.getByRole('button', { name: 'Gerenciar servidor', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Gerenciar Nossa turma' })
+  await settings.getByRole('button', { name: 'Exclusão do servidor', exact: true }).click()
   await settings.getByRole('button', { name: 'Excluir servidor', exact: true }).click()
   const confirmation = page.getByRole('dialog', { name: 'Excluir o servidor Nossa turma?' })
   await expect(confirmation).toContainText('permanentemente')

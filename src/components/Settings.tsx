@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Keyboard,
   Camera,
   Headphones,
   LogOut,
@@ -15,12 +16,14 @@ import { upload, validateFile } from '../lib/files'
 import type { Profile, Settings as Preferences } from '../lib/types'
 import { Avatar, Modal } from './ui'
 import { AudioSettingsContent } from './AudioSettings'
+import { ShortcutSettings } from './ShortcutSettings'
 import { VideoSettings } from './VideoSettings'
 
 const sections = {
   profile: { label: 'Meu perfil', icon: UserRound },
   audio: { label: 'Voz e áudio', icon: Headphones },
   video: { label: 'Vídeo', icon: Video },
+  shortcuts: { label: 'Atalhos', icon: Keyboard },
   appearance: { label: 'Aparência', icon: Palette },
 }
 
@@ -76,7 +79,7 @@ export function Settings({
           </div>
           <div className="user-settings-nav-group">
             <span className="user-settings-nav-label">Experiência</span>
-            {(['audio', 'video', 'appearance'] as const).map((key) => {
+            {(['audio', 'video', 'shortcuts', 'appearance'] as const).map((key) => {
               const Icon = sections[key].icon
               return (
                 <button
@@ -221,6 +224,7 @@ export function Settings({
           )}
           {section === 'audio' && <AudioSettingsContent />}
           {section === 'video' && <VideoSettings />}
+          {section === 'shortcuts' && <ShortcutSettings />}
           {section === 'appearance' && (
             <>
               <div className="user-settings-intro">

@@ -1,3 +1,4 @@
+import { useShortcut } from '../lib/shortcuts'
 import { useEffect, useRef, useState } from 'react'
 import {
   ConnectionState,
@@ -582,6 +583,10 @@ export function Voice({
   useEffect(() => {
     if (selectedStream && !streamKey.split(',').includes(selectedStream)) setSelectedStream(null)
   }, [streamKey, selectedStream])
+  const microphoneButton = useRef<HTMLButtonElement>(null)
+  const cameraButton = useRef<HTMLButtonElement>(null)
+  useShortcut('microphone', () => microphoneButton.current?.click())
+  useShortcut('camera', () => cameraButton.current?.click())
   const connected = state === ConnectionState.Connected
   const status = joining
     ? 'Conectando…'
@@ -592,6 +597,7 @@ export function Voice({
         : joined
           ? 'Conexão encerrada'
           : 'Canal de voz'
+  useShortcut('soundboard', () => toggleSoundboard())
   const toggleSoundboard = () => {
     if (!soundboardOpen) {
       setSoundError('')
@@ -879,6 +885,7 @@ export function Voice({
           <div className="voice-controls">
             <div className="call-control-group">
               <button
+                ref={microphoneButton}
                 className={`call-control ${!room.localParticipant.isMicrophoneEnabled ? 'is-muted' : ''}`}
                 disabled={!connected || joining || microphoneBusy}
                 title={
@@ -914,6 +921,7 @@ export function Voice({
             </div>
             <div className="call-control-group">
               <button
+                ref={cameraButton}
                 className={`call-control ${room.localParticipant.isCameraEnabled ? 'active' : ''}`}
                 disabled={!connected || joining || cameraBusy}
                 title={room.localParticipant.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}
