@@ -127,7 +127,18 @@ async function setup(page: Page, missingSchema = false) {
     let data: unknown = []
     if (url.pathname.includes('/rpc/')) {
       calls.push({ name, body: body || {} })
-      if (name === 'create_dm') data = dm
+      if (name === 'server_permissions')
+        data = {
+          read_chat: true,
+          send_messages: true,
+          connect_voice: true,
+          speak: true,
+          share_screen: true,
+          use_camera: true,
+          manage_channels: false,
+          ban_members: false,
+        }
+      else if (name === 'create_dm') data = dm
       else if (name === 'create_community') data = channel
       else if (name === 'channel_people')
         data = [
