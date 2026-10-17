@@ -571,13 +571,68 @@ await test('Only the server owner can delete it; contents cascade and other comm
   assert.equal((await db.query('select id from direct_conversations where id=$1', [dm])).rows.length, 1)
   assert.equal((await db.query('select id from profiles')).rows.length, 3)
 })
+await test('Role permissions enforce chat, defaults, channel management and ban re-entry', async () => {
+  const s = (await as(ids[0], "insert into servers(owner_id,name) values($1,'Permissions') returning id", [ids[0]]))[0].id
+  const c = (await as(ids[0], "select id from channels where server_id=$1 and kind='text'", [s]))[0].id
+  const r = (await as(ids[0], "insert into roles(server_id,name,permissions) values($1,'Leitura',$2) returning id", [s, { read_chat: true }]))[0].id
+  await as(ids[0], 'select set_default_role($1,$2)', [s,r])
+  await denied(ids[2], 'select set_default_role($1,$2)', [s,r])
+  await denied(ids[0], 'select set_default_role($1,$2)', [s,role.id])
+  const inv = (await as(ids[0], 'insert into invitations(server_id,created_by) values($1,$2) returning code', [s,ids[0]]))[0].code
+  await as(ids[1], 'select join_server($1)', [inv])
+  assert.equal((await as(ids[0], 'select * from member_roles where server_id=$1 and user_id=$2', [s,ids[1]]))[0].role_id,r)
+  const perms = () => as(ids[1], 'select server_permissions($1) as p', [s]).then(rows => rows[0].p)
+  assert.equal((await perms()).read_chat,true)
+  assert.equal((await perms()).send_messages,false)
+  assert.equal((await perms()).share_screen,false)
+  const msg = (await as(ids[0], "insert into messages(channel_id,author_id,content) values($1,$2,'Visible') returning id", [c,ids[0]]))[0].id
+  assert.equal((await as(ids[1], 'select id from messages where id=$1', [msg])).length,1)
+  await denied(ids[1], "insert into messages(channel_id,author_id,content) values($1,$2,'Forbidden')", [c,ids[1]])
+  await denied(ids[1], "insert into message_reactions(message_id,user_id,emoji) values($1,$2,'👍')", [msg,ids[1]])
+  assert.equal((await as(ids[1], "update channels set name='forbidden' where id=$1 returning id", [c])).length,0)
+  assert.equal((await as(ids[1], 'update roles set permissions=$1 where id=$2 returning id', [{ ban_members:true },r])).length,0)
+  await denied(ids[0], 'update roles set permissions=$1 where id=$2', [{ read_chat:'yes' },r])
+  await as(ids[0], 'update roles set permissions=$1 where id=$2', [{},r])
+  assert.equal((await as(ids[1], 'select id from messages where id=$1', [msg])).length,0)
+  const extra = (await as(ids[0], "insert into roles(server_id,name,permissions) values($1,'Moderador',$2) returning id", [s,{ read_chat:true,send_messages:true,manage_channels:true,ban_members:true }]))[0].id
+  await as(ids[0], 'insert into member_roles(server_id,user_id,role_id) values($1,$2,$3)', [s,ids[1],extra])
+  assert.equal((await perms()).send_messages,true)
+  assert.equal((await perms()).share_screen,false)
+  await as(ids[1], "insert into messages(channel_id,author_id,content) values($1,$2,'Allowed')", [c,ids[1]])
+  assert.equal((await as(ids[1], "update channels set name='allowed' where id=$1 returning id", [c])).length,1)
+  const hidden = (await as(ids[0], "insert into channels(server_id,name,kind,is_private) values($1,'hidden','text',true) returning id", [s]))[0].id
+  assert.equal((await as(ids[1], "update channels set name='forbidden' where id=$1 returning id", [hidden])).length,0)
+  await denied(ids[1], 'select invite_member($1,$2,$3)', [s,ids[2],c])
+  await denied(ids[1], 'select ban_member($1,$2,true)', [s,ids[0]])
+  await denied(ids[1], 'select ban_member($1,$2,true)', [s,ids[1]])
+  await as(ids[2], 'select join_server($1)', [inv])
+  await as(ids[0], "select manage_membership($1,$2,'promote')", [s,ids[2]])
+  await denied(ids[1], 'select ban_member($1,$2,true)', [s,ids[2]])
+  await as(ids[0], "select manage_membership($1,$2,'demote')", [s,ids[2]])
+  await denied(ids[2], 'select ban_member($1,$2,true)', [s,ids[1]])
+  await as(ids[1], 'select ban_member($1,$2,true)', [s,ids[2]])
+  await denied(ids[2], 'select join_server($1)', [inv])
+  assert.equal((await as(ids[2], 'select * from channels where server_id=$1', [s])).length,0)
+  await as(ids[1], 'select ban_member($1,$2,false)', [s,ids[2]])
+  await as(ids[2], 'select join_server($1)', [inv])
+  await as(ids[0], 'select set_default_role($1,$2)', [s,extra])
+  assert.equal((await as(ids[0], 'select id from roles where server_id=$1 and is_default', [s]))[0].id,extra)
+  await as(ids[0], 'select set_default_role($1,null)', [s])
+  assert.equal((await as(ids[0], 'select id from roles where server_id=$1 and is_default', [s])).length,0)
+  assert.equal((await as(ids[1], 'update channels set archived=true where id=$1 returning id', [c])).length,1)
+  await as(ids[0], 'delete from member_roles where server_id=$1 and user_id=$2 and role_id=$3', [s,ids[1],extra])
+  assert.equal((await perms()).manage_channels,false)
+  assert.equal((await perms()).send_messages,false)
+  assert.ok(Object.values((await as(ids[0], 'select server_permissions($1) as p', [s]))[0].p).every(Boolean))
+  assert.ok(Object.values((await as(ids[2], 'select server_permissions($1) as p', [server.id]))[0].p).every(v => v === false))
+})
 await test('Every public table has RLS and anon has no data grants', async () => {
   const tables = (
     await db.query(
       "select relname,relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'",
     )
   ).rows
-  assert.equal(tables.length, 19)
+  assert.equal(tables.length, 20)
   assert.ok(tables.every((t) => t.relrowsecurity))
   await db.exec('begin;set local role anon;')
   try {

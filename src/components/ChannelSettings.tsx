@@ -11,6 +11,7 @@ export function ChannelSettings({
   server,
   userId,
   canManage,
+  canManageMembers = canManage,
   canPromote,
   friends,
   profiles,
@@ -22,6 +23,7 @@ export function ChannelSettings({
   server: Server
   userId: string
   canManage: boolean
+  canManageMembers?: boolean
   canPromote: boolean
   friends: Profile[]
   profiles: Profile[]
@@ -140,7 +142,7 @@ export function ChannelSettings({
                     }
                   </small>
                 </div>
-                {canManage && member.user_id !== userId && !protectedMember && (
+                {canManageMembers && member.user_id !== userId && !protectedMember && (
                   <div className="member-actions">
                     {canPromote && (
                       <select
@@ -181,7 +183,7 @@ export function ChannelSettings({
             )
           })}
         </section>
-        {canManage && (
+        {canManageMembers && (
           <section>
             <FriendPicker
               people={friends.filter((p) => !members.some((m) => m.user_id === p.id))}

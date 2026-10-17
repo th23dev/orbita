@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
 import { AccessToken } from 'npm:livekit-server-sdk@2.19.1'
+import { publicationGrant } from './publication-grant.ts'
 
 Deno.serve(async (req: Request) => {
   const origins = (Deno.env.get('ALLOWED_ORIGINS') || '').split(',').map((s) => s.trim())
@@ -36,11 +37,14 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Invalid channel' }, 400)
     const { data: channel, error } = await client
       .from('channels')
-      .select('id,kind,archived')
+      .select('id,kind,archived,server_id')
       .eq('id', channel_id)
       .single()
     if (error || !channel || channel.kind !== 'voice' || channel.archived)
       return json({ error: 'Channel unavailable' }, 403)
+    const { data: permissions, error: permissionError } = await client.rpc('server_permissions', { s: channel.server_id })
+    if (permissionError || !permissions?.connect_voice)
+      return json({ error: 'Voice permission denied' }, 403)
     const { data: profile } = await client
       .from('profiles')
       .select('display_name')
@@ -59,7 +63,7 @@ Deno.serve(async (req: Request) => {
     token.addGrant({
       roomJoin: true,
       room: `orbita-${channel.id}`,
-      canPublish: true,
+      ...publicationGrant(permissions),
       canSubscribe: true,
       canPublishData: false,
     })

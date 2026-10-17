@@ -107,4 +107,4 @@ export type Friendship = {
   addressee_id: string
   status: 'pending' | 'accepted'
 }
-export type Role = { id: string; server_id: string; name: string; color: string }
+export type Role = { id: string; server_id: string; name: string; color: string; permissions?: import('./permissions').Permissions; is_default?: boolean }

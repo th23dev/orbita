@@ -1,8 +1,9 @@
+import { ServerRoles } from './ServerRoles'
 import { useEffect, useRef, useState } from 'react'
 import { Shield, Trash2, Users, UserPlus, Hash, Settings2 } from 'lucide-react'
 import { check, db, errorText } from '../lib/supabase'
-import type { Channel, Profile, Role, Server, ServerMember } from '../lib/types'
-import { IconButton, Modal } from './ui'
+import type { Channel, Profile, Server, ServerMember } from '../lib/types'
+import { Modal } from './ui'
 import { ServerLogo } from './ServerLogo'
 import { upload, validateFile } from '../lib/files'
 import { ServerMembers } from './ServerMembers'
@@ -72,26 +73,11 @@ export function ServerAdmin({
   }, [section])
   const [serverName, setServerName] = useState(server.name)
   const [description, setDescription] = useState(server.description)
-  const [roles, setRoles] = useState<Role[]>([]),
-    [assignments, setAssignments] = useState<{ role_id: string; user_id: string }[]>([])
-  const [roleName, setRoleName] = useState(''),
-    [busy, setBusy] = useState(false)
-  async function load() {
-    const [r, m] = await Promise.all([
-      db().from('roles').select('*').eq('server_id', server.id),
-      db().from('member_roles').select('*').eq('server_id', server.id),
-    ])
-    setRoles(check(r) as Role[])
-    setAssignments(check(m))
-  }
-  useEffect(() => {
-    void load().catch((e) => report(errorText(e)))
-  }, [server.id])
+  const [busy, setBusy] = useState(false)
   const run = async (action: () => Promise<void>) => {
     setBusy(true)
     try {
       await action()
-      await load()
       await refresh()
     } catch (e) {
       report(errorText(e))
@@ -278,91 +264,7 @@ export function ServerAdmin({
               />
             </div>
             <section hidden={section !== 'roles'}>
-              <h3>
-                <Shield size={17} />
-                Cargos
-              </h3>
-              <form
-                className="inline-form"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  void run(async () => {
-                    check(await db().from('roles').insert({ server_id: server.id, name: roleName }))
-                    setRoleName('')
-                  })
-                }}
-              >
-                <input
-                  aria-label="Nome do cargo"
-                  placeholder="Novo cargo"
-                  required
-                  maxLength={32}
-                  value={roleName}
-                  onChange={(e) => setRoleName(e.target.value)}
-                />
-                <button className="secondary" disabled={busy}>
-                  Criar
-                </button>
-              </form>
-              {roles.length === 0 && (
-                <p className="server-settings-empty">
-                  Nenhum cargo criado. Adicione o primeiro cargo para organizar sua comunidade.
-                </p>
-              )}
-              {roles.map((role) => (
-                <div className="role-section" key={role.id}>
-                  <div className="admin-row">
-                    <strong>{role.name}</strong>
-                    <IconButton
-                      label={`Excluir cargo ${role.name}`}
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          check(await db().from('roles').delete().eq('id', role.id))
-                        })
-                      }
-                    >
-                      <Trash2 size={15} />
-                    </IconButton>
-                  </div>
-                  <div className="checkbox-grid">
-                    {people.map((person) => (
-                      <label key={person.id}>
-                        <input
-                          type="checkbox"
-                          disabled={busy}
-                          checked={assignments.some(
-                            (a) => a.role_id === role.id && a.user_id === person.id,
-                          )}
-                          onChange={(e) => {
-                            const enabled = e.target.checked
-                            void run(async () => {
-                              if (enabled)
-                                check(
-                                  await db().from('member_roles').insert({
-                                    server_id: server.id,
-                                    user_id: person.id,
-                                    role_id: role.id,
-                                  }),
-                                )
-                              else
-                                check(
-                                  await db()
-                                    .from('member_roles')
-                                    .delete()
-                                    .eq('server_id', server.id)
-                                    .eq('user_id', person.id)
-                                    .eq('role_id', role.id),
-                                )
-                            })
-                          }}
-                        />
-                        {person.display_name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              <ServerRoles serverId={server.id} people={people} refresh={refresh} canEdit={server.owner_id === userId} />
             </section>
             <section hidden={section !== 'channels'}>
               <ServerChannels channels={channels} manage={manageChannel} />

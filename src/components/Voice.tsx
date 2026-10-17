@@ -42,6 +42,7 @@ import { Avatar, IconButton } from './ui'
 import { featuredStream } from '../lib/call-layout'
 import type { VoicePresence } from '../hooks/useVoicePresence'
 import { VoiceMicrophone } from '../lib/voice-microphone'
+import { useServerPermissions } from '../hooks/useServerPermissions'
 import { StreamPlayer } from './StreamPlayer'
 import { CallOptions } from './CallOptions'
 import { cameraCaptureOptions, useVideoPreferences } from '../lib/video-preferences'
@@ -125,6 +126,7 @@ export function Voice({
   openAudioSettings: () => void
 }) {
   const dialogs = useDialogs()
+  const permissions = useServerPermissions(channel.server_id)
   const [room] = useState(
     () => new Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true }),
   )
@@ -363,7 +365,20 @@ export function Voice({
         await room.disconnect()
         report('Acesso ao canal encerrado.')
         leave()
+        return
       }
+      const { data: allowed, error: permissionError } = await db().rpc('server_permissions', { s: channel.server_id })
+      if (!mounted.current || permissionError || !allowed) return
+      if (!allowed.connect_voice) {
+        hadJoined.current = false
+        await room.disconnect()
+        report('Seu cargo não permite mais participar desta chamada.')
+        leave()
+        return
+      }
+      if (!allowed.speak) { await microphone.setEnabled(false); await board.current?.dispose(); board.current = null }
+      if (!allowed.use_camera && room.localParticipant.isCameraEnabled) await room.localParticipant.setCameraEnabled(false)
+      if (!allowed.share_screen && room.localParticipant.isScreenShareEnabled) await room.localParticipant.setScreenShareEnabled(false)
     }
     const verify = () => {
       if (!document.hidden && navigator.onLine) void checkAccess().catch(() => {})
@@ -468,11 +483,12 @@ export function Voice({
     }
   }
   async function connect() {
+    if (!permissions.connect_voice) throw new Error('Seu cargo não permite entrar em chamadas.')
     if (connecting.current) return
     connecting.current = true
     unlockCallSounds()
     const resuming = hadJoined.current
-    const enableMicrophone = resuming ? microphoneWanted.current : startWithMic
+    const enableMicrophone = permissions.speak && (resuming ? microphoneWanted.current : startWithMic)
     setJoining(true)
     try {
       const requestToken = () =>
@@ -516,7 +532,7 @@ export function Voice({
       setJoined(true)
       await room.startAudio().catch(() => {})
       if (!mounted.current) return
-      if (previewCameraRef.current) {
+      if (previewCameraRef.current && permissions.use_camera) {
         const track = previewCameraRef.current
         previewCameraRef.current = null
         setPreviewCamera(null)
@@ -686,7 +702,7 @@ export function Voice({
             <div className="preview-settings" aria-label="Como entrar na chamada">
               <button
                 className={startWithMic ? '' : 'off'}
-                disabled={joining}
+                disabled={joining || !permissions.speak}
                 aria-pressed={startWithMic}
                 onClick={() => setStartWithMic((value) => !value)}
               >
@@ -695,7 +711,7 @@ export function Voice({
               </button>
               <button
                 className={previewCamera ? '' : 'off'}
-                disabled={joining || cameraBusy}
+                disabled={joining || cameraBusy || !permissions.use_camera}
                 aria-pressed={Boolean(previewCamera)}
                 onClick={() => void togglePreviewCamera()}
               >
@@ -863,11 +879,11 @@ export function Voice({
           <div className="call-join-row">
             <button
               className="call-join"
-              disabled={joining || cameraBusy}
+              disabled={joining || cameraBusy || !permissions.connect_voice}
               onClick={() => void run(connect)}
             >
               <Headphones size={21} />
-              {joining ? 'Conectando…' : 'Entrar na chamada'}
+              {!permissions.connect_voice ? 'Seu cargo não permite chamadas' : joining ? 'Conectando…' : 'Entrar na chamada'}
             </button>
             <button
               ref={soundboardToggle}
@@ -887,7 +903,7 @@ export function Voice({
               <button
                 ref={microphoneButton}
                 className={`call-control ${!room.localParticipant.isMicrophoneEnabled ? 'is-muted' : ''}`}
-                disabled={!connected || joining || microphoneBusy}
+                disabled={!connected || joining || microphoneBusy || !permissions.speak}
                 title={
                   room.localParticipant.isMicrophoneEnabled
                     ? 'Desligar microfone'
@@ -923,7 +939,7 @@ export function Voice({
               <button
                 ref={cameraButton}
                 className={`call-control ${room.localParticipant.isCameraEnabled ? 'active' : ''}`}
-                disabled={!connected || joining || cameraBusy}
+                disabled={!connected || joining || cameraBusy || !permissions.use_camera}
                 title={room.localParticipant.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'}
                 aria-label={
                   room.localParticipant.isCameraEnabled ? 'Desligar câmera' : 'Ligar câmera'
@@ -963,7 +979,7 @@ export function Voice({
             <div className="call-control-group">
               <button
                 className={`call-control ${room.localParticipant.isScreenShareEnabled ? 'active' : ''}`}
-                disabled={!connected || joining || qualityBusy}
+                disabled={!connected || joining || qualityBusy || !permissions.share_screen}
                 title={
                   room.localParticipant.isScreenShareEnabled
                     ? 'Parar transmissão'
@@ -1158,7 +1174,7 @@ export function Voice({
             <div className="sound-tile" key={sound.id}>
               <button
                 className="sound-play"
-                disabled={playingSound !== null || (joined && state !== ConnectionState.Connected)}
+                disabled={playingSound !== null || (joined && (state !== ConnectionState.Connected || !permissions.speak))}
                 aria-label={`${joined ? 'Tocar' : 'Prévia de'} ${sound.name}`}
                 onClick={() =>
                   void run(async () => {

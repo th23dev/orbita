@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@livekit/protocol@1.51.0": "1.51.0",
     "npm:@supabase/supabase-js@2.117.3": "2.117.3",
     "npm:livekit-server-sdk@2.19.1": "2.19.1"
   },

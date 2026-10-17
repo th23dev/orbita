@@ -10,6 +10,7 @@ import type {
   ServerMember,
   ChannelMembership,
   CommunityInvite,
+  Role,
 } from '../lib/types'
 
 export function useWorkspace(userId: string, report: (s: string) => void) {
@@ -23,6 +24,8 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
   const [invites, setInvites] = useState<CommunityInvite[]>([])
   const [dmMembers, setDmMembers] = useState<{ conversation_id: string; user_id: string }[]>([])
   const [communityReady, setCommunityReady] = useState(true)
+  const [myRoles, setMyRoles] = useState<Role[]>([])
+  const [rolesUnavailable, setRolesUnavailable] = useState(false)
   const [settings, setSettings] = useState<Settings>({
     user_id: userId,
     theme: 'dark',
@@ -42,6 +45,8 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
       db().from('channel_memberships').select('*'),
       db().from('community_invites').select('*').eq('invitee_id', userId),
       db().from('direct_conversation_members').select('*'),
+      db().from('roles').select('id,server_id,name,color'),
+      db().from('member_roles').select('role_id,server_id').eq('user_id', userId),
     ])
     const [s, c, p, d, f, m, st] = results.slice(0, 7).map(check)
     // A rolling frontend/database update must not hide existing workspace data.
@@ -51,6 +56,13 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
     const cm = missingSchema(results[7].error) ? [] : check(results[7])
     const ci = missingSchema(results[8].error) ? [] : check(results[8])
     const dm = check(results[9])
+    const rolesFailed = Boolean(results[10].error || results[11].error)
+    setRolesUnavailable(rolesFailed)
+    setMyRoles(rolesFailed ? [] : (results[10].data as Role[]).filter(role =>
+      (results[11].data as { role_id: string; server_id: string }[]).some(
+        assignment => assignment.role_id === role.id && assignment.server_id === role.server_id,
+      ),
+    ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
     setCommunityReady(ready)
     setServers(s as Server[])
     setChannels(c as Channel[])
@@ -134,6 +146,8 @@ export function useWorkspace(userId: string, report: (s: string) => void) {
     invites,
     dmMembers,
     communityReady,
+    myRoles,
+    rolesUnavailable,
     settings,
     loading,
     refresh,

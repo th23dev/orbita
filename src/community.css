@@ -10,6 +10,94 @@
   border: 0;
   cursor: pointer;
 }
+.my-server-roles {
+  margin: 4px 10px 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.my-server-roles h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.my-server-roles ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.my-server-roles li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.my-server-roles li i {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.my-server-roles p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.my-permissions-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.my-permissions-button:hover { text-decoration: underline; }
+.my-server-roles .my-permissions p {
+  margin: 8px 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.my-server-roles .my-permissions-list {
+  display: block;
+}
+.my-server-roles .my-permissions-list li {
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 13px;
+}
+.my-server-roles .my-permissions-list p { margin: 4px 0 0; }
+.my-permission-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.my-permission-status.allowed { color: var(--text); }
+@media (max-width: 480px) {
+  .my-server-roles .my-permissions-list li { flex-direction: column; gap: 8px; }
+}
 .section-toggle svg {
   transition: transform 0.18s;
 }

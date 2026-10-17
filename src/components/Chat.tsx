@@ -76,6 +76,7 @@ function FileCard({ file, report }: { file: Attachment; report: (s: string) => v
 }
 
 export function Chat({
+  canSend = true,
   space,
   userId,
   profiles,
@@ -84,6 +85,7 @@ export function Chat({
   report,
   openProfile,
 }: {
+  canSend?: boolean
   space: Space
   userId: string
   profiles: Profile[]
@@ -290,6 +292,7 @@ export function Chat({
     }
   }
   function addFiles(files: FileList | null) {
+    if (!canSend) return
     if (!files) return
     try {
       const next = Array.from(files)
@@ -302,6 +305,7 @@ export function Chat({
     }
   }
   async function send() {
+    if (!canSend) return
     if (sending || (!content.trim() && !pending.length)) return
     composer.current?.focus({ preventScroll: true })
     setSending(true)
@@ -526,7 +530,7 @@ export function Chat({
                     </span>
                   </button>
                 )}
-                {editing === message.id ? (
+                {canSend && editing === message.id ? (
                   <form
                     className="edit-form"
                     onSubmit={(e) => {
@@ -577,6 +581,7 @@ export function Chat({
                               : ''
                           }
                           key={emoji}
+                          disabled={!canSend}
                           onClick={() => void run(() => react(message, emoji))}
                         >
                           {emoji}
@@ -587,7 +592,7 @@ export function Chat({
                   </>
                 )}
               </div>
-              {!message.deleted_at && (
+              {!message.deleted_at && canSend && (
                 <>
                   <button
                     type="button"
@@ -731,7 +736,7 @@ export function Chat({
           />
           <IconButton
             label="Anexar arquivos"
-            disabled={sending}
+            disabled={sending || !canSend}
             onClick={() => fileInput.current?.click()}
           >
             <Paperclip size={21} />
@@ -744,10 +749,10 @@ export function Chat({
             onBlur={() => setMentionDismissed(true)}
             onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
             aria-label="Mensagem"
-            placeholder={`Converse em ${space.kind === 'channel' ? '#' : ''}${space.name}`}
+            placeholder={canSend ? `Converse em ${space.kind === 'channel' ? '#' : ''}${space.name}` : 'Seu cargo permite apenas ler as mensagens'}
             maxLength={4000}
             value={content}
-            readOnly={sending}
+            readOnly={sending || !canSend}
             aria-busy={sending}
             rows={1}
             onChange={(e) => {
@@ -782,7 +787,7 @@ export function Chat({
           <button
             className="send-button"
             aria-label="Enviar mensagem"
-            disabled={sending || (!content.trim() && !pending.length)}
+            disabled={!canSend || sending || (!content.trim() && !pending.length)}
           >
             {sending ? <LoaderCircle size={19} className="spin" /> : <Send size={19} />}
           </button>

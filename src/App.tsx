@@ -29,6 +29,7 @@ import { Friends } from './components/Friends'
 import { Settings } from './components/Settings'
 import { AudioQuickControls, AudioSettings } from './components/AudioSettings'
 import { ServerAdmin } from './components/ServerAdmin'
+import { useServerPermissionState } from './hooks/useServerPermissions'
 import { ServerRailItem } from './components/ServerRailItem'
 import { ServerMembers } from './components/ServerMembers'
 import { ChannelSettings } from './components/ChannelSettings'
@@ -36,6 +37,7 @@ import { FriendPicker } from './components/FriendPicker'
 import { InviteInbox } from './components/InviteInbox'
 import { MemberManager } from './components/MemberManager'
 import { ProfileCard } from './components/ProfileCard'
+import { MyServerRoles } from './components/MyServerRoles'
 import { useDialogs } from './components/Dialogs'
 import {
   clearInvitation,
@@ -158,6 +160,8 @@ function Workspace({ session }: { session: Session }) {
     .filter((p) => memberIds.includes(p.id))
     .sort((a, b) => Number(online.includes(b.id)) - Number(online.includes(a.id)))
   const owner = currentServer?.owner_id === session.user.id
+  const permissionState = useServerPermissionState(currentServer?.id)
+  const permissions = permissionState.permissions
   const manager =
     owner ||
     data.members.some(
@@ -379,7 +383,7 @@ function Workspace({ session }: { session: Session }) {
           {currentServer ? (
             <>
               <strong>{currentServer.name}</strong>
-              {manager && (
+              {(manager || permissions.ban_members) && (
                 <IconButton label="Gerenciar servidor" onClick={() => setModal('admin')}>
                   <SettingsIcon size={18} />
                 </IconButton>
@@ -397,6 +401,16 @@ function Workspace({ session }: { session: Session }) {
           </IconButton>
         </header>
         <div className="sidebar-content">
+          {currentServer && (
+            <MyServerRoles
+              key={currentServer.id}
+              serverName={currentServer.name}
+              permissionState={permissionState}
+              roles={data.myRoles.filter(role => role.server_id === currentServer.id)}
+              access={owner ? 'owner' : manager ? 'admin' : 'member'}
+              unavailable={data.rolesUnavailable}
+            />
+          )}
           {currentServer && manager && (
             <button className="sidebar-invite" onClick={() => openModal('invite')}>
               <UserPlus size={18} />
@@ -700,10 +714,13 @@ function Workspace({ session }: { session: Session }) {
             )}
             {data.loading ? (
               <Empty icon={<Orbit className="spin" />} title="Entrando na sua órbita…" />
+            ) : space && space.kind === 'channel' && !permissions.read_chat ? (
+              <Empty icon={<Hash size={35} />} title="Seu cargo não permite acessar o chat" />
             ) : space ? (
               <Chat
                 key={`${space.kind}:${space.id}`}
                 space={space}
+                canSend={space.kind === 'dm' || permissions.send_messages}
                 userId={session.user.id}
                 onRead={unread.markRead}
                 profiles={data.profiles}
@@ -905,7 +922,7 @@ function Workspace({ session }: { session: Session }) {
           userId={session.user.id}
         />
       )}
-      {modal === 'admin' && currentServer && manager && !owner && (
+      {modal === 'admin' && currentServer && (manager || permissions.ban_members) && !owner && (
         <Modal title={`Gerenciar ${currentServer.name}`} close={() => setModal(null)}>
           <MemberManager
             server={currentServer}
@@ -947,7 +964,8 @@ function Workspace({ session }: { session: Session }) {
           channel={editingChannel}
           server={currentServer}
           userId={session.user.id}
-          canManage={canManageChannel(editingChannel.id)}
+          canManage={canManageChannel(editingChannel.id) || permissions.manage_channels}
+          canManageMembers={canManageChannel(editingChannel.id)}
           canPromote={manager}
           profiles={data.profiles}
           friends={friendProfiles}
